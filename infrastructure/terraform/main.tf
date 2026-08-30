@@ -1,0 +1,297 @@
+module "bootstrap" {
+  source = "./modules/project-bootstrap"
+
+  # Each ZITADEL instance is a distinct aliased provider.
+  providers = {
+    zitadel.dev  = zitadel.dev
+    zitadel.test = zitadel.test
+    zitadel.stg  = zitadel.stg
+    zitadel.prod = zitadel.prod
+  }
+
+  project_name = var.project_name
+  project_slug = var.project_slug
+  profile      = var.profile
+
+  github_org     = var.github_org
+  primary_domain = var.primary_domain
+
+  enabled_apps            = var.enabled_apps
+  application_source_dirs = var.application_source_dirs
+  enabled_services        = var.enabled_services
+
+  supabase_org_id       = var.supabase_org_id
+  supabase_environments = var.supabase_environments
+  supabase_region       = var.supabase_region
+
+  repository_visibility = var.repository_visibility
+  required_approvals    = var.required_approvals
+
+  vercel_team_id = var.vercel_team_id
+  fly_org_slug   = var.fly_org_slug
+  fly_api_token  = var.fly_api_token
+  vercel_token   = var.vercel_token
+  fly_regions    = var.fly_regions
+
+  cloudflare_zone_id = var.cloudflare_zone_id
+  enable_waf         = var.enable_waf
+
+  zitadel_role_grants               = var.zitadel_role_grants
+  zitadel_redirect_uris             = var.zitadel_redirect_uris
+  zitadel_post_logout_redirect_uris = var.zitadel_post_logout_redirect_uris
+
+  # Only where an instance holds more than one organization. Filtered rather
+  # than passed whole: an absent org_id must stay absent, not arrive as null in
+  # a map the module would then have to distinguish from unset.
+  #
+  # `nonsensitive` here, and nowhere downstream, is the whole of it.
+  #
+  # `zitadel_instances` is sensitive as a map because it carries a JWT profile.
+  # Reading `instance.org_id` out of it carries that mark onto an organization
+  # id, which is not a secret -- it appears in console URLs and in every
+  # management API call. The mark then travels: into the module's `var.org_id`,
+  # into `local.org_id`, out through the module output, and into the root
+  # output, where Terraform refuses to export it.
+  #
+  # Removing it at that end does not work. `nonsensitive()` applied to a map
+  # built from a module output leaves the mark in place, so the error repeats
+  # unchanged with the call added -- verified against a minimal configuration
+  # rather than assumed. The mark has to come off where the value leaves the
+  # sensitive variable, which is here.
+  #
+  # It also unmarks the discovery path: a `for_each` cannot accept a sensitive
+  # value at all, so `data.zitadel_org.discovered` failed for the same reason.
+  #
+  # This is what the `zitadel_domains` output below has always done.
+  zitadel_org_ids = {
+    for env, instance in nonsensitive(var.zitadel_instances) :
+    env => instance.org_id if instance.org_id != null
+  }
+}
+
+output "profile" {
+  description = "Generator profile this project was created with."
+  value       = var.profile
+}
+
+output "github_repository_full_name" {
+  value = module.bootstrap.github_repository_full_name
+}
+
+output "github_repository_url" {
+  value = module.bootstrap.github_repository_url
+}
+
+output "doppler_project_name" {
+  value = module.bootstrap.doppler_project_name
+}
+
+output "supabase_project_refs" {
+  value = module.bootstrap.supabase_project_refs
+}
+
+output "supabase_project_api_urls" {
+  value = module.bootstrap.supabase_project_api_urls
+}
+
+output "zitadel_project_ids" {
+  value = module.bootstrap.zitadel_project_ids
+}
+
+# DNS records, and the zone they need to be deleted from. Exported for
+# teardown, which had no idea they existed.
+output "cloudflare_record_ids" {
+  value = module.bootstrap.cloudflare_record_ids
+}
+
+output "cloudflare_zone_id" {
+  value = module.bootstrap.cloudflare_zone_id
+}
+
+# Needed only by teardown, and needed absolutely: a project id identifies
+# nothing without the organization it lives in.
+#
+# Plain, with no `sensitive` and no `nonsensitive`. The mark is removed where
+# the value leaves `var.zitadel_instances`, at the module call above, which is
+# the only place removing it works.
+#
+# `sensitive = true` is what Terraform suggests in the error this used to
+# produce, and it is the wrong answer: parseTerraformOutputs withholds every
+# sensitive output by design, so teardown would read an empty map, find no
+# organization for any project, and skip ZITADEL -- reporting a complete
+# teardown while the projects stayed. That is R-040, reached from a different
+# direction. Taking the suggestion would have turned a failed plan into a
+# successful one that quietly could not clean up after itself.
+output "zitadel_resolved_org_ids" {
+  value = module.bootstrap.zitadel_resolved_org_ids
+}
+
+output "zitadel_client_ids" {
+  sensitive = true
+  value     = module.bootstrap.zitadel_client_ids
+}
+
+output "vercel_project_ids" {
+  value = module.bootstrap.vercel_project_ids
+}
+
+output "fly_app_names" {
+  value = module.bootstrap.fly_app_names
+}
+
+output "fly_app_hostnames" {
+  value = module.bootstrap.fly_app_hostnames
+}
+
+output "redis_urls" {
+  description = "Map of env -> rediss:// queue URL. Embeds the password."
+  sensitive   = true
+  value       = module.bootstrap.redis_urls
+}
+
+output "redis_endpoints" {
+  description = "Map of env -> queue host, without the credential."
+  value       = module.bootstrap.redis_endpoints
+}
+
+output "redis_database_ids" {
+  description = "Map of env -> Upstash database id. What teardown deletes by."
+  value       = module.bootstrap.redis_database_ids
+}
+
+# The outputs below exist so that settings which *can* be derived are derived.
+# A value that lives only inside Terraform is a value the Doppler bootstrap has
+# to ask a person for, and a prompt is where typos and stale copies come from.
+#
+# They were missing here while the control-plane profile had them, so eight of
+# the eleven `derived out:` lines in local/config/secrets.manifest named outputs
+# nothing emitted. That does not fail: doppler_bootstrap_support.py treats an
+# unresolvable source as "ask a person", so every product bootstrap silently
+# hand-typed its own application URL and OIDC redirect URI. Measured on the
+# first generated product, `dev` held 11 of 31 settings and the other three
+# environments held one each.
+
+output "primary_domain" {
+  description = "The zone customer-facing hostnames are issued under."
+  value       = var.primary_domain
+}
+
+output "zitadel_domains" {
+  description = <<-EOT
+    Map of env -> ZITADEL base URL.
+
+    Declassified deliberately. `zitadel_instances` is sensitive as a whole
+    because it carries a JWT profile, but a hostname is not a secret -- it is
+    printed in every redirect the browser follows. Marking the output sensitive
+    instead would hide it from `terraform output -json`, and the Doppler
+    bootstrap reads it from there; the setting would silently become a prompt.
+  EOT
+  # A base URL, scheme included, because that is what the description
+  # promises and what every consumer builds on. The control-plane emitted a
+  # bare hostname, so `${ZITADEL_DOMAIN}/oauth/v2/authorize` came out as a
+  # relative path and the sign-in route answered 500 in every environment.
+  # Same shape here, so the product cannot repeat it.
+  #
+  # `port` and `insecure` are honoured rather than assumed: a self-hosted
+  # ZITADEL on http and a non-default port is the shape the local stack uses,
+  # and hardcoding https here would work everywhere except there.
+  value = {
+    for name, instance in nonsensitive(var.zitadel_instances) :
+    name => format(
+      "%s://%s%s",
+      instance.insecure ? "http" : "https",
+      instance.domain,
+      contains([80, 443, 0], instance.port) ? "" : format(":%d", instance.port),
+    )
+  }
+}
+
+# The hostname labels below match the vercel module's `application_hostnames`
+# default, which maps `web` to `app`. Two spellings of the same hostname is how
+# a redirect URI stops matching the domain it was issued for, so if that default
+# changes, this changes with it.
+#
+# Computed from `primary_domain` rather than read back from
+# `module.bootstrap.vercel_domains`, because the domains map is empty until the
+# apply that attaches them. These settings are needed by the Doppler bootstrap
+# that runs *before* that apply has necessarily happened, and an output that is
+# correct only after the fact is one more prompt.
+
+output "app_urls" {
+  description = "Map of env -> customer-facing application URL."
+  value = {
+    for name in nonsensitive(keys(var.zitadel_instances)) :
+    name => name == "prod" ? "https://app.${var.primary_domain}" : "https://app-${name}.${var.primary_domain}"
+  }
+}
+
+output "admin_urls" {
+  description = "Map of env -> internal operations URL."
+  value = {
+    for name in nonsensitive(keys(var.zitadel_instances)) :
+    name => name == "prod" ? "https://admin.${var.primary_domain}" : "https://admin-${name}.${var.primary_domain}"
+  }
+}
+
+output "admin_redirect_uris" {
+  description = "Map of env -> OAuth callback for the internal operations application."
+  value = {
+    for name, url in {
+      for n in nonsensitive(keys(var.zitadel_instances)) :
+      n => n == "prod" ? "https://admin.${var.primary_domain}" : "https://admin-${n}.${var.primary_domain}"
+    } : name => "${url}/api/auth/callback"
+  }
+}
+
+output "app_redirect_uris" {
+  description = "Map of env -> OAuth callback for the customer-facing application."
+  value = {
+    for name, url in {
+      for n in nonsensitive(keys(var.zitadel_instances)) :
+      n => n == "prod" ? "https://app.${var.primary_domain}" : "https://app-${n}.${var.primary_domain}"
+    } : name => "${url}/api/auth/callback"
+  }
+}
+
+# Read back from the Fly module rather than rebuilt from a naming convention.
+# The hostname is a real attribute of a created app, so this cannot drift from
+# what was provisioned the way a format string can.
+
+output "api_urls" {
+  description = "Map of env -> API URL, as served by Fly."
+  value = {
+    for key, host in module.bootstrap.fly_app_hostnames :
+    replace(key, "api-", "") => "https://${host}"
+    if startswith(key, "api-")
+  }
+}
+# Supabase Storage, not MinIO. MinIO is the local stack's stand-in and never
+# exists in a deployed environment; the manifest lists its credentials as
+# `local` for that reason.
+
+output "storage_endpoints" {
+  description = "Map of env -> Supabase Storage S3-compatible endpoint."
+  value = {
+    for name, url in module.bootstrap.supabase_project_api_urls :
+    name => "${url}/storage/v1"
+  }
+}
+
+output "cors_origins" {
+  description = <<-EOT
+    Map of env -> JSON array of origins allowed to read an API response.
+
+    Emitted as JSON because the API parses it as a list. Built here rather than
+    by hand so it stays in step with the URLs above: an application moved to a
+    new hostname and a CORS list that still names the old one is an outage that
+    reads as an authentication bug.
+  EOT
+  value = {
+    for name in nonsensitive(keys(var.zitadel_instances)) :
+    name => jsonencode(
+      name == "prod"
+      ? ["https://app.${var.primary_domain}", "https://admin.${var.primary_domain}"]
+      : ["https://app-${name}.${var.primary_domain}", "https://admin-${name}.${var.primary_domain}"]
+    )
+  }
+}

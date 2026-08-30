@@ -1,0 +1,33 @@
+{
+  "name": "@koras-e2e-shop/web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "node ../../local/scripts/dev-app.mjs KORAS_PORT_APP_WEB 3000",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint src",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@koras-e2e-shop/auth": "workspace:*",
+    "@koras-e2e-shop/permissions": "workspace:*",
+    "@koras-e2e-shop/branding": "workspace:*",
+    "@koras-e2e-shop/config": "workspace:*",
+    "@koras-e2e-shop/feature-flags": "workspace:*",
+    "@koras-e2e-shop/tenant": "workspace:*",
+    "@koras-e2e-shop/types": "workspace:*",
+    "@koras-e2e-shop/ui": "workspace:*",
+    "next": "^15.1.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.0.0",
+    "@types/node": "^20.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "tailwindcss": "^4.0.0",
+    "typescript": "^5.5.0"
+  }
+}

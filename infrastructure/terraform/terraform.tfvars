@@ -1,0 +1,64 @@
+# koras-e2e-shop — non-secret Terraform inputs.
+#
+# One apply provisions all four environments (dev, test, stg, prod); the
+# modules fan out over the environment set. This file is committed, so it must
+# never hold secrets. Tokens and passwords arrive through the environment:
+#
+#   doppler run --project koras-platform-bootstrap --config prod -- terraform plan
+#
+# Secret inputs supplied as TF_VAR_*:
+#   TF_VAR_supabase_environments   per-env db_password and region
+#   TF_VAR_zitadel_instances       per-instance domain, port, insecure, jwt_profile_json
+
+profile      = "product"
+project_name = "koras-e2e-shop"
+project_slug = "koras-e2e-shop"
+
+# The domain this project's hostnames are issued under.
+#
+# Per project, not per estate. It arrived as one TF_VAR_primary_domain shared by
+# the whole bootstrap Doppler config, so the Control Plane and every product
+# asked Vercel for the same names and the second to apply was refused with
+# `domain_already_in_use` -- after half its estate existed. See R-028.
+#
+# terraform.tfvars outranks a TF_VAR_ environment variable, so a value left in
+# Doppler no longer decides this.
+primary_domain = "koras-e2e-shop.korastechnologies.com"
+
+enabled_apps     = ["web", "admin"]
+enabled_services = ["api", "worker"]
+
+# Component keys need not match their template directory, so the Vercel module
+# is told the source path rather than inferring it from the key. Inferring it
+# produced projects rooted at a path that had never existed.
+application_source_dirs = { "web" : "apps/web", "admin" : "apps/admin" }
+
+supabase_region = "us-east-1"
+
+# Cloudflare's OWASP Core Ruleset needs a Pro plan or above; a Free zone
+# rejects it. Set true once the zone is upgraded.
+enable_waf = false
+
+fly_regions = {
+  dev  = "iad"
+  test = "iad"
+  stg  = "iad"
+  prod = "iad"
+}
+
+# Who can sign in to each environment.
+#
+# `project_role_check` refuses a token to a user holding no role on the ZITADEL
+# project, so an environment named nowhere here has nobody who can reach it --
+# the refusal arrives as ProjectRequired, before the application is involved.
+#
+# Bootstrap access only: the few people who must be able to open a new
+# environment. Everything after that belongs in the application's own
+# administration rather than in a provisioning tool.
+#
+# Declarative both ways. Removing someone revokes them on the next apply.
+zitadel_role_grants = {
+  # dev = {
+  #   "someone@example.com" = ["organization_owner"]
+  # }
+}

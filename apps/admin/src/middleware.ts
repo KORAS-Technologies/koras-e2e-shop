@@ -1,0 +1,138 @@
+import { NextResponse } from 'next/server'
+import type { NextRequest } from 'next/server'
+import { readSession } from '@koras-e2e-shop/auth'
+import { canAdminister } from '@koras-e2e-shop/permissions'
+
+/**
+ * Every route requires an organization owner or administrator, with a second factor.
+ *
+ * Gating happens here rather than per page so that a new page is protected by
+ * default: forgetting to add a check is the failure this shape prevents.
+ */
+const PUBLIC_PATHS = ['/login', '/api/auth']
+
+/**
+ * A per-request nonce, and the policy that makes it worth having.
+ *
+ * `frame-ancestors 'none'` is the one that matters most here: this application
+ * performs privileged actions with a session cookie, so being framable is
+ * clickjacking with extra steps. `X-Frame-Options` in the config says the same
+ * thing for browsers that predate CSP.
+ *
+ * Next emits inline bootstrap script, so a policy without either a nonce or
+ * `unsafe-inline` breaks the application outright. The nonce is generated here,
+ * passed to the renderer through a request header, and named in the policy --
+ * which keeps inline script working for the code we ship and no one else's.
+ */
+function contentSecurityPolicy(nonce: string, connectSrc: string): string {
+  return [
+    "default-src 'self'",
+    `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'`,
+    "style-src 'self' 'unsafe-inline'",
+    "img-src 'self' data: blob:",
+    "font-src 'self'",
+    `connect-src 'self' ${connectSrc}`.trim(),
+    "frame-ancestors 'none'",
+    "form-action 'self'",
+    "base-uri 'self'",
+    "object-src 'none'",
+  ].join('; ')
+}
+
+export async function middleware(request: NextRequest) {
+  const nonce = crypto.randomUUID().replace(/-/g, '')
+  // One policy, built once. The response used to recompute it, which was
+  // identical only because the function is pure and the nonce was the same:
+  // two expressions that had to stay in step, and if one gained a
+  // connect-src source the other did not, the policy the browser enforces
+  // would stop naming the nonce the renderer used.
+  const policy = contentSecurityPolicy(nonce, process.env.NEXT_PUBLIC_API_URL ?? '')
+  const response = await authorize(request, nonce, policy)
+
+  // Applied to every response the function can produce, including the refusals.
+  // A 403 rendered without a policy is still a page in the user's browser, and
+  // the error paths are the ones easiest to forget.
+  response.headers.set('Content-Security-Policy', policy)
+  return response
+}
+
+async function authorize(
+  request: NextRequest,
+  nonce: string,
+  policy: string,
+): Promise<NextResponse> {
+  const { pathname } = request.nextUrl
+  if (PUBLIC_PATHS.some((path) => pathname.startsWith(path))) {
+    return withNonce(request, nonce, policy)
+  }
+
+  // No network call. Verifying the provider's token against ZITADEL's key set
+  // on every request is what broke the Control Plane: the edge runtime cannot
+  // always reach the deployment's ZITADEL host, so every valid session read as
+  // no session and the browser looped back to the login page forever. The
+  // cookie this application signed at sign-in is checked instead.
+  // requireMfa, unlike the customer-facing application. This one acts on
+  // customer data on an operator's behalf, so a stolen session cookie is worth
+  // more here and a second factor is the cheapest thing standing in the way.
+  const outcome = await readSession(request, {
+    secret: process.env.SESSION_SECRET ?? '',
+    requireMfa: true,
+  })
+
+  if (outcome.status === 'anonymous') {
+    const login = new URL('/login', request.url)
+    login.searchParams.set('next', pathname)
+    return NextResponse.redirect(login)
+  }
+
+  if (outcome.status === 'mfa-required') {
+    return new NextResponse(
+      'Multi-factor authentication is required. Enrol a second factor, then sign in again.',
+      { status: 403 },
+    )
+  }
+
+  // Signed in and holding at least one recognised role. 403 rather than a
+  // redirect: sending someone to a login page they have already passed is a
+  // loop, and this is a real refusal rather than a missing session.
+  //
+  // A token carrying only names this build does not recognise lands here. That
+  // includes a platform role, which this profile's permissions package
+  // deliberately does not define.
+  if (!canAdminister(outcome.session.organizationRoles)) {
+    return new NextResponse(
+      'This application is for organization owners and administrators.',
+      { status: 403 },
+    )
+  }
+
+  return withNonce(request, nonce, policy)
+}
+
+/**
+ * Forward the request with the nonce attached.
+ *
+ * Passed as a request header rather than a module-level value: the renderer
+ * reads it per request, and a nonce shared between two concurrent renders would
+ * let one page's policy authorise another page's script.
+ */
+function withNonce(request: NextRequest, nonce: string, policy: string): NextResponse {
+  const headers = new Headers(request.headers)
+  headers.set('x-nonce', nonce)
+  // The policy goes on the request as well as the response, because that is
+  // where the framework looks for it. Next reads `Content-Security-Policy` off
+  // the incoming request, lifts the nonce out of it, and stamps that nonce onto
+  // the script tags it renders; given only `x-nonce` it finds nothing and emits
+  // bare `<script>` tags, which this policy then blocks.
+  //
+  // Nothing notices while every page is a server component and there is no
+  // interactive code to break -- the application has a working policy and no
+  // hydration to lose. The first client component to ship goes dead in the
+  // browser, with a console error as the only symptom.
+  headers.set('Content-Security-Policy', policy)
+  return NextResponse.next({ request: { headers } })
+}
+
+export const config = {
+  matcher: ['/((?!_next/static|_next/image|favicon.ico).*)'],
+}

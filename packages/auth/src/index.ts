@@ -1,0 +1,494 @@
+/**
+ * Session verification for this product's applications.
+ *
+ * Runs in Next middleware, which is the edge runtime: no Node crypto, no
+ * filesystem. `jose` is used because it works there.
+ *
+ * The generated implementation returned null unconditionally with a comment
+ * saying verification was delegated elsewhere. It failed closed, which is the
+ * right direction, but it made every route unreachable -- the middleware
+ * redirected to a login page that did not exist, so the application could not
+ * be opened at all.
+ */
+
+import { SignJWT, createRemoteJWKSet, jwtVerify } from 'jose'
+import type { NextRequest } from 'next/server'
+import { isOrganizationRole, type OrganizationRole } from '@koras-e2e-shop/permissions'
+
+/** ZITADEL emits project roles as an object keyed by role name, not a list. */
+const ROLES_CLAIM = 'urn:zitadel:iam:org:project:roles'
+const ORGANIZATION_CLAIM = 'urn:zitadel:iam:org:id'
+/** Authentication Methods References, RFC 8176. */
+const MFA_METHODS = new Set(['mfa', 'otp', 'u2f', 'hwk', 'sc', 'totp', 'webauthn'])
+
+export interface Session {
+  userId: string
+  email?: string
+  name?: string
+  /**
+   * Every organization role on the token, not one resolved role.
+   *
+   * The Control Plane resolves to a single platform role because staff
+   * authority is a ladder. These are not: `billing_admin` and `security_admin`
+   * are scoped authorities that a member may hold alongside others, and
+   * collapsing them to one would silently drop the rest.
+   */
+  organizationRoles: OrganizationRole[]
+  organizationId?: string
+  usedMfa: boolean
+}
+
+/**
+ * What a request's session cookie turned out to be.
+ *
+ * `verifySession` returned `Session | null`, and null meant four different
+ * things: no cookie, a token that failed verification, and -- the one that
+ * caused an unbreakable loop -- a perfectly valid session belonging to staff
+ * who had not presented a second factor.
+ *
+ * The middleware could only read null as `not signed in`, so it redirected to
+ * the login page. Signing in again cannot add a second factor to an existing
+ * ZITADEL session, so the browser went round the same five redirects forever,
+ * showing the login screen each time as though nothing had happened.
+ *
+ * Naming the outcomes means each refusal can be the right one, and the two
+ * that a person can act on say so.
+ */
+export type SessionOutcome =
+  | { status: 'anonymous' }
+  | { status: 'mfa-required'; session: Session }
+  | { status: 'ok'; session: Session }
+
+export interface VerifyOptions {
+  zitadelDomain: string
+  /**
+   * The OIDC client id. This is the audience of an ID token.
+   *
+   * Verification used to check the token against the *project* id, which an
+   * ID token's `aud` does not carry -- so every token failed, verifySession
+   * returned null, and the middleware sent a freshly signed-in user back to
+   * the login page. A completed sign-in that lands on the login screen looks
+   * exactly like one that never happened.
+   */
+  clientId: string
+  /**
+   * The project id, accepted as an alternative audience.
+   *
+   * ZITADEL puts it in the audience of access tokens. Keeping it means a
+   * caller presenting one is not rejected for the wrong reason.
+   */
+  projectId?: string
+  /**
+   * Require a second factor.
+   *
+   * Off by default here, unlike the Control Plane: a product's callers are its
+   * customers, and forcing enrolment on everyone is a decision for whoever owns
+   * the product rather than one the template makes. The internal operations
+   * application turns it on, because it acts on customer data.
+   */
+  requireMfa?: boolean
+}
+
+/**
+ * Keys are fetched once per domain and cached by `jose` for the lifetime of the
+ * set. Fetching per request would put a round trip on every navigation and make
+ * the identity provider a hard dependency of page loads.
+ */
+const jwksCache = new Map<string, ReturnType<typeof createRemoteJWKSet>>()
+
+/** Where the signing keys live, for a given ZITADEL base URL. */
+export function jwksUrl(domain: string): string {
+  return `${normalizeDomain(domain)}/oauth/v2/keys`
+}
+
+/**
+ * The ZITADEL base URL, without a trailing slash.
+ *
+ * One helper because three call sites derive three things from this value --
+ * the key set URL, the cache key, and now the expected issuer -- and an issuer
+ * that normalized differently from the key set URL would reject every token
+ * from the instance it had just fetched keys from.
+ */
+export function normalizeDomain(domain: string): string {
+  return domain.replace(/\/$/, '')
+}
+
+function jwksFor(domain: string): ReturnType<typeof createRemoteJWKSet> {
+  const base = normalizeDomain(domain)
+  let set = jwksCache.get(base)
+  if (!set) {
+    set = createRemoteJWKSet(new URL(jwksUrl(domain)))
+    jwksCache.set(base, set)
+  }
+  return set
+}
+
+function parseRoles(claims: Record<string, unknown>): OrganizationRole[] {
+  const raw = claims[ROLES_CLAIM]
+  const names =
+    raw !== null && typeof raw === 'object' && !Array.isArray(raw)
+      ? Object.keys(raw as Record<string, unknown>)
+      : Array.isArray(raw)
+        ? raw.map(String)
+        : []
+
+  // An unrecognised name grants nothing. Carrying it forward as authority is
+  // how a typo becomes access -- and a platform role arriving in a product's
+  // token is exactly such a name here, which is why this profile's permissions
+  // package does not define them.
+  return names.filter(isOrganizationRole).sort()
+}
+
+/**
+ * Which ZITADEL organization this caller belongs to.
+ *
+ * `urn:zitadel:iam:org:id` is the obvious claim and ZITADEL does not send it
+ * unless the authorization request named an organization -- which a login
+ * form cannot, because the point of logging in is to find out who you are.
+ * Reading only that claim meant every customer token carried no organization
+ * and the portal refused every one of them.
+ *
+ * The organization is in the roles claim, which ZITADEL shapes as
+ * role -> { organization id: primary domain }. Roles are granted per
+ * organization, so that mapping says which one.
+ *
+ * Two are refused rather than guessed: a token naming two organizations is a
+ * provisioning mistake, and picking one would scope a session to whichever
+ * came first.
+ */
+function organizationId(claims: Record<string, unknown>): string | undefined {
+  const explicit = claims[ORGANIZATION_CLAIM]
+  if (typeof explicit === 'string' && explicit) return explicit
+
+  const raw = claims[ROLES_CLAIM]
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return undefined
+
+  const organizations = new Set<string>()
+  for (const value of Object.values(raw as Record<string, unknown>)) {
+    if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
+      for (const key of Object.keys(value as Record<string, unknown>)) organizations.add(key)
+    }
+  }
+  return organizations.size === 1 ? [...organizations][0] : undefined
+}
+
+function usedMfa(claims: Record<string, unknown>): boolean {
+  const amr = claims.amr
+  if (!Array.isArray(amr)) return false
+  return amr.some((method) => MFA_METHODS.has(String(method).toLowerCase()))
+}
+
+/**
+ * Verify the session cookie and describe the caller.
+ *
+ * Returns null when the token is absent, malformed, expired, for another
+ * audience, or belongs to staff who did not present a second factor. Callers
+ * treat null as "not signed in"; nothing distinguishes the reasons to the
+ * browser, because that would tell an attacker which tokens are real.
+ */
+export async function resolveSession(
+  request: NextRequest,
+  options: VerifyOptions,
+): Promise<SessionOutcome> {
+  const token = request.cookies.get('session')?.value
+  if (!token) return { status: 'anonymous' }
+  return resolveToken(token, options)
+}
+
+/**
+ * Verify a token the provider issued, and describe who it belongs to.
+ *
+ * Fetches ZITADEL's key set, so this belongs in the Node runtime. The
+ * callback is the one place that needs it.
+ */
+export async function resolveToken(
+  token: string,
+  options: VerifyOptions,
+): Promise<SessionOutcome> {
+
+  const audience = [options.clientId, options.projectId].filter(
+    (value): value is string => typeof value === 'string' && value !== '',
+  )
+  if (audience.length === 0) {
+    // Not a rejected token -- an application that cannot evaluate one. Every
+    // request would redirect to the login page, and signing in again would
+    // do the same, forever. Worth saying once in the log rather than never.
+    console.error('session verification is not configured: ZITADEL_CLIENT_ID is empty')
+    return { status: 'anonymous' }
+  }
+
+  try {
+    const { payload } = await jwtVerify(token, jwksFor(options.zitadelDomain), {
+      audience,
+      // OIDC Core 3.1.3.7 step 3. The key set already comes from this
+      // instance, so a token signed elsewhere fails the signature and this
+      // looks redundant -- but "the next check would have caught it" is the
+      // argument that removes every check, one at a time. ZITADEL sets `iss`
+      // to its own base URL, which is the same value the key set is fetched
+      // from.
+      issuer: normalizeDomain(options.zitadelDomain),
+      // Pinned so the token header cannot pick the algorithm. The session
+      // cookie below has always done this; the path taking input from outside
+      // was the one that did not.
+      algorithms: ['RS256'],
+    })
+
+    const subject = typeof payload.sub === 'string' ? payload.sub : undefined
+    if (!subject) return { status: 'anonymous' }
+
+    const claims = payload as Record<string, unknown>
+    const organizationRoles = parseRoles(claims)
+    const mfa = usedMfa(claims)
+
+    if (organizationRoles.length === 0) {
+      // A verified token that grants nothing. The refusal downstream is
+      // correct and reads as a misconfigured account, which is what sent
+      // someone to the ZITADEL console to check a grant that was already
+      // there: the role was asserted into the access token and the
+      // applications read the ID token.
+      //
+      // Claim names only. Whether `urn:zitadel:iam:org:project:roles` is
+      // present separates a provider that is not asserting roles from an
+      // account that has none, and those need opposite fixes. The values
+      // are not logged: names are enough to tell them apart.
+      console.warn('token carries no organization role', {
+        claims: Object.keys(claims).sort(),
+      })
+    }
+
+    const session: Session = {
+      userId: subject,
+      email: typeof claims.email === 'string' ? claims.email : undefined,
+      name: typeof claims.name === 'string' ? claims.name : undefined,
+      organizationRoles,
+      organizationId: organizationId(claims),
+      usedMfa: mfa,
+    }
+
+    // Reported rather than erased. A refusal a person can act on is worth
+    // telling them about, and collapsing it into "not signed in" is what sent
+    // the Control Plane's browser round the same five redirects forever:
+    // signing in again cannot add a factor to a session that already exists.
+    //
+    // Opt-in here, so a caller that asks for it gets it and no route can
+    // forget once it has.
+    if (options.requireMfa === true && !mfa) {
+      return { status: 'mfa-required', session }
+    }
+    return { status: 'ok', session }
+  } catch (error) {
+    // The browser is told nothing -- naming the reason tells an attacker
+    // which of their tokens is closest. The log may say, and must: an
+    // audience mismatch and an expired token are the same silent redirect
+    // from outside, and one of them is a configuration error nobody can see.
+    // Name and message, not the token. jose says "unexpected \"aud\" claim
+    // value" for the misconfiguration that caused this and "signature
+    // verification failed" for a forgery -- the first is worth waking up to
+    // and the second is routine, and they were indistinguishable.
+    console.error('session verification failed', {
+      code: error instanceof Error ? error.name : 'unknown',
+      reason: error instanceof Error ? error.message : undefined,
+      // The key-set URL, because a 404 fetching it and a token that simply
+      // does not verify are the same silent redirect from outside, and the
+      // first is a wrong setting rather than a wrong token. Not a secret:
+      // ZITADEL publishes it, and the browser is sent to the same host on
+      // every sign-in.
+      keys: jwksUrl(options.zitadelDomain),
+    })
+    return { status: 'anonymous' }
+  }
+}
+
+/**
+ * The caller who only wants a usable session.
+ *
+ * Kept so nothing has to spell out the outcomes to ask a yes-or-no question.
+ * Anything that renders a refusal should use `resolveSession` instead: this
+ * collapses `needs a second factor` back into `not signed in`.
+ */
+export async function verifySession(
+  request: NextRequest,
+  options: VerifyOptions,
+): Promise<Session | null> {
+  const outcome = await resolveSession(request, options)
+  return outcome.status === 'ok' ? outcome.session : null
+}
+
+/**
+ * The application's own session cookie.
+ *
+ * The ID token used to be the cookie, and the middleware verified it against
+ * ZITADEL's key set on every request. That put a network call from the edge
+ * runtime in front of every page, and Vercel's edge runtime could not reach
+ * this deployment's ZITADEL custom domain -- the same host the Node runtime
+ * exchanges codes with successfully, seconds apart in the same request. Every
+ * key-set fetch answered 404, so every valid session verified as no session
+ * and the browser looped back to the login page.
+ *
+ * The dependency is gone rather than worked around. The ID token is verified
+ * once, in the callback, where the runtime can reach the provider; what it
+ * establishes is then minted into a cookie this application signs itself.
+ * Middleware checks that signature with a local key and never leaves the
+ * process.
+ *
+ * This is also the better shape independently: no round trip in the hot path,
+ * nothing in the cookie beyond what authorisation actually reads, and a
+ * provider outage cannot sign everyone out mid-session.
+ */
+const SESSION_ISSUER = 'koras-e2e-shop'
+
+/**
+ * The provider's own token, kept alongside the session cookie.
+ *
+ * The platform API verifies tokens against ZITADEL directly -- audience,
+ * issuer, MFA -- and deliberately does not trust this application to have
+ * done so. Sending it a session this application signed would ask it to.
+ *
+ * So two cookies, each with one job. The session decides what a browser may
+ * open, and needs no network. This one is forwarded to the API and is
+ * meaningless to the middleware.
+ */
+export const PROVIDER_TOKEN_COOKIE = 'id_token'
+
+function signingKey(secret: string): Uint8Array {
+  return new TextEncoder().encode(secret)
+}
+
+/**
+ * Mint the session cookie from an already-verified identity.
+ *
+ * `expiresAt` is seconds since the epoch and comes from the ID token, so the
+ * session cannot outlive the authentication behind it.
+ */
+export async function mintSession(
+  session: Session,
+  secret: string,
+  expiresAt: number,
+): Promise<string> {
+  if (secret.length < 32) {
+    // Refused rather than trusted. A short signing key is a forgeable session,
+    // and it would fail nowhere until someone tried.
+    throw new Error('SESSION_SECRET must be at least 32 characters.')
+  }
+  return new SignJWT({
+    email: session.email,
+    name: session.name,
+    roles: session.organizationRoles,
+    org: session.organizationId,
+    mfa: session.usedMfa,
+  })
+    .setProtectedHeader({ alg: 'HS256' })
+    .setIssuer(SESSION_ISSUER)
+    .setSubject(session.userId)
+    .setIssuedAt()
+    .setExpirationTime(expiresAt)
+    .sign(signingKey(secret))
+}
+
+/**
+ * Read the session cookie. No network, so this is safe in middleware.
+ */
+export async function readSession(
+  request: NextRequest,
+  options: { secret: string; requireMfa?: boolean },
+): Promise<SessionOutcome> {
+  return readSessionToken(request.cookies.get('session')?.value, options)
+}
+
+/**
+ * The same read, from a token a server component already has.
+ *
+ * Exported because the applications had their own copy of this, decoding the
+ * cookie without verifying it and looking for ZITADEL's roles claim. Once the
+ * cookie became one this application signs, that copy found nothing and every
+ * page rendered as though nobody was signed in -- while the middleware, which
+ * used the real reader, let the request through.
+ *
+ * Two readers of one cookie is one reader too many. Verification is local and
+ * costs nothing, so there is no reason for the second to skip it either.
+ */
+export async function readSessionToken(
+  token: string | undefined,
+  options: { secret: string; requireMfa?: boolean },
+): Promise<SessionOutcome> {
+  if (!token) return { status: 'anonymous' }
+
+  if (!options.secret) {
+    // Not a rejected cookie -- an application that cannot read one. Every
+    // request would redirect to the login page and signing in would do the
+    // same, forever.
+    console.error('session cannot be read: SESSION_SECRET is empty')
+    return { status: 'anonymous' }
+  }
+
+  try {
+    const { payload } = await jwtVerify(token, signingKey(options.secret), {
+      issuer: SESSION_ISSUER,
+      algorithms: ['HS256'],
+    })
+    const subject = typeof payload.sub === 'string' ? payload.sub : undefined
+    if (!subject) return { status: 'anonymous' }
+
+    // Re-validated on the way out, not trusted because we signed it. The
+    // signature proves this application minted the cookie, not that the role
+    // names inside it are still ones this build recognises.
+    const roles = Array.isArray(payload.roles)
+      ? payload.roles.map(String).filter(isOrganizationRole).sort()
+      : []
+    const session: Session = {
+      userId: subject,
+      email: typeof payload.email === 'string' ? payload.email : undefined,
+      name: typeof payload.name === 'string' ? payload.name : undefined,
+      organizationRoles: roles,
+      organizationId: typeof payload.org === 'string' ? payload.org : undefined,
+      usedMfa: payload.mfa === true,
+    }
+
+    if (options.requireMfa === true && !session.usedMfa) {
+      return { status: 'mfa-required', session }
+    }
+    return { status: 'ok', session }
+  } catch (error) {
+    console.error('session cookie rejected', {
+      code: error instanceof Error ? error.name : 'unknown',
+      reason: error instanceof Error ? error.message : undefined,
+    })
+    return { status: 'anonymous' }
+  }
+}
+
+
+/**
+ * Where to send a browser to sign in.
+ *
+ * Points at the ZITADEL authorize endpoint, which is an OAuth redirect rather
+ * than a hosted interface: the browser passes through it and lands back on a
+ * KORAS page. Invariant 4 forbids sending customers to the ZITADEL console or
+ * its account screens, not using the protocol.
+ */
+export function authorizeUrl(options: {
+  zitadelDomain: string
+  clientId: string
+  redirectUri: string
+  state: string
+}): string {
+  const params = new URLSearchParams({
+    client_id: options.clientId,
+    redirect_uri: options.redirectUri,
+    response_type: 'code',
+    scope: 'openid email profile urn:zitadel:iam:org:project:roles',
+    state: options.state,
+  })
+  return `${options.zitadelDomain.replace(/\/$/, '')}/oauth/v2/authorize?${params.toString()}`
+}
+
+export {
+  beginAuthorization,
+  cookieOptions,
+  ExchangeError,
+  exchangeCode,
+  OAUTH_COOKIES,
+  safeReturnPath,
+  tokensMatch,
+} from './oauth.js'
+export type { AuthorizationStart, TokenSet } from './oauth.js'

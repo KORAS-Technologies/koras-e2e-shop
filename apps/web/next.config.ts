@@ -1,0 +1,51 @@
+import type { NextConfig } from 'next'
+
+/**
+ * Security headers for every response this application serves.
+ *
+ * No Content-Security-Policy here, deliberately. Next injects an inline
+ * bootstrap script, so the honest options are a nonce or `unsafe-inline`, and a
+ * nonce cannot be set from a static config because it must differ per request.
+ * It belongs in middleware; this file carries the headers that do not vary.
+ */
+const securityHeaders = [
+  { key: 'X-Content-Type-Options', value: 'nosniff' },
+  { key: 'X-Frame-Options', value: 'DENY' },
+  { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
+  {
+    key: 'Permissions-Policy',
+    value: 'geolocation=(), microphone=(), camera=(), payment=(), interest-cohort=()',
+  },
+  { key: 'Cross-Origin-Opener-Policy', value: 'same-origin' },
+]
+
+const nextConfig: NextConfig = {
+  // The header advertises the framework and version to anyone scanning.
+  poweredByHeader: false,
+
+  // Linting runs as its own turbo task (`eslint src`) against the root flat
+  // config, which applies the Next plugin to `apps/**`. Next's built-in lint
+  // step resolves config from this directory, cannot see that, and warns on
+  // every build that a plugin it is in fact using was "not detected".
+  // Disabling the duplicate pass removes the warning, not a check.
+  eslint: { ignoreDuringBuilds: true },
+
+  // Workspace packages ship TypeScript sources rather than built output, so
+  // Next has to compile them itself.
+  transpilePackages: [
+    '@koras-e2e-shop/auth',
+    '@koras-e2e-shop/branding',
+    '@koras-e2e-shop/config',
+    '@koras-e2e-shop/feature-flags',
+    '@koras-e2e-shop/permissions',
+    '@koras-e2e-shop/tenant',
+    '@koras-e2e-shop/types',
+    '@koras-e2e-shop/ui',
+  ],
+
+  async headers() {
+    return [{ source: '/:path*', headers: securityHeaders }]
+  },
+}
+
+export default nextConfig

@@ -1,0 +1,38 @@
+import { availablePlans } from './actions'
+import { SignupForm } from './SignupForm'
+
+/**
+ * Where a customer starts, before they have anything to sign in to.
+ *
+ * Deliberately in `apps/web` beside `/login` rather than in `apps/marketing`:
+ * the marketing site is optional and a product generated without it would have
+ * no way to sign anybody up, and the verification link has to land in this
+ * application anyway.
+ *
+ * Nothing is created by loading or submitting this page. The Control Plane
+ * writes one pending row and sends one email; an account exists only after the
+ * link in it is opened.
+ */
+export default async function SignupPage() {
+  const plans = await availablePlans()
+
+  // No plan is self-serve until somebody marks one, so this is the state a new
+  // estate is in rather than an error. Saying so beats a form that collects an
+  // address and is refused after it is sent.
+  if (plans.length === 0) {
+    return (
+      <main data-testid="signup-closed">
+        <h1>Start with koras-e2e-shop</h1>
+        <p>Signing up online is not available yet. Please get in touch and we will set you up.</p>
+      </main>
+    )
+  }
+
+  return (
+    <main>
+      <h1>Start with koras-e2e-shop</h1>
+      <p>Tell us where to send your confirmation link.</p>
+      <SignupForm plans={plans} />
+    </main>
+  )
+}

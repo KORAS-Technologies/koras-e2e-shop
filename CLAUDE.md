@@ -1,0 +1,121 @@
+# koras-e2e-shop — AI Agent Context
+
+## What this repository is
+
+`koras-e2e-shop` is a KORAS SaaS product generated from `koras-saas-starter`
+using `--profile product`.
+
+## Generated components
+
+| Kind | Enabled |
+|------|---------|
+| Applications | `admin` `web`  |
+| Services | `api` `worker`  |
+| Capabilities | `audit` `billing` `branding` `control_plane_client` `custom_domains` `customer_branding` `email` `feature_flags` `notifications` `observability` `rls` `storage` `tenancy`  |
+
+Components absent from this list were not selected at generation time. Do not
+add an application or service directory by hand — regenerate or extend the
+profile manifest in `koras-saas-starter` instead.
+
+## Key commands
+
+```bash
+make bootstrap   # first-time setup
+make dev         # start local stack
+make down        # stop containers
+make test        # run all tests
+make health      # verify all services
+```
+
+## Technology stack
+
+- **Frontend:** Next.js 15, TypeScript 5, Tailwind CSS, shadcn/ui
+- **Backend:** FastAPI, Python 3.12+, SQLAlchemy 2, ARQ
+- **Database:** Supabase (PostgreSQL) with RLS
+- **Auth:** ZITADEL (customers never see ZITADEL UI)
+- **Secrets:** Doppler
+- **IaC:** Terraform
+
+## Environment model
+
+| Environment | Branch    |
+|-------------|-----------|
+| `dev`       | `develop` |
+| `test`      | `test`    |
+| `stg`       | `staging` |
+| `prod`      | `main`    |
+
+## Architecture notes
+
+- Tenant isolation is enforced at the database layer via RLS
+- All secrets are sourced from Doppler — nothing is committed
+- The Control Plane client in `packages/api-client` communicates with KORAS
+  Control Plane for provisioning and entitlement checks
+- ZITADEL JWT is validated on every API request in `services/api`
+
+## Claude Code configuration
+
+This repository's Claude Code configuration lives in `.claude/` and arrived with
+generation. Do not hand-edit it — it is single-sourced in `koras-saas-starter`
+and re-copied by `create-koras-app --refresh-modules`. Fix a skill there.
+
+| Path | What it is |
+|------|-----------|
+| `.claude/CLAUDE.md` | Shared Koras engineering instructions |
+| `.claude/skills/koras-*/` | The twelve common Koras skills |
+| `.claude/skills/koras-profile-product/` | This repository's profile skill |
+| `.claude/commands/` | `/feature`, `/review`, `/test`, `/ui-review` |
+| `.claude/agents/` | `architect`, `frontend`, `reviewer`, `tester` |
+| `.claude/external-skills.yaml` | Pinned external skills, locked in `.claude/external-skills.lock.json` |
+
+### Before implementing anything
+
+1. Read `.koras/project.yaml`. It is the authoritative record of which profile
+   this repository is — `product` — and takes precedence over the directory
+   name, the git remote, or an inference from the code.
+2. Load `.claude/CLAUDE.md` for the shared rules.
+3. Load `koras-profile-product` for the rules specific to this profile. Where it is
+   narrower than the shared rules, it wins.
+4. Read `docs/AGENT_CONTEXT.md` if it exists. It holds rules this
+   repository wrote for itself, and it outranks the shared ones.
+5. Search this repository before creating anything. Reuse the existing
+   component, hook, client, schema, service or pattern.
+
+### Project-specific rules
+
+Everything in `.claude/` and this file is generator-owned and will be
+overwritten by `create-koras-app --refresh`. Rules this repository writes for
+itself belong in `docs/AGENT_CONTEXT.md`, which the generator never writes and
+never overwrites.
+
+Read it if it exists. Where it contradicts the shared rules, it wins -- it is
+the narrower, more local statement of how this specific repository works.
+
+### Routing
+
+| Working on | Load |
+|------------|------|
+| Where new code belongs | `koras-architecture` |
+| A new feature end to end | `koras-feature-development`, or `/feature` |
+| UI | `koras-ui-design-system`, `frontend-design`, `web-design-guidelines` |
+| React / Next.js | `react-best-practices` |
+| Forms and validation | `koras-forms` |
+| Calling an API | `koras-api-client` |
+| Sessions, roles, permissions | `koras-auth` |
+| Tenant-scoped data | `koras-multitenancy` |
+| Schema, RLS, generated types | `koras-supabase` |
+| A trust boundary | `koras-security` |
+| User-facing UI | `koras-accessibility` |
+| Tests and completeness | `koras-testing` |
+| Browser verification | `webapp-testing`, or `/test` |
+| Reviewing the diff | `koras-code-review`, or `/review` |
+
+The detail lives in the skills. Keep this file to workflow and orchestration
+rather than restating them.
+
+## Generated from
+
+`koras-saas-starter` — product profile template
+Profile: `product`
+Generator: `create-koras-app`
+Control Plane registration: `/api/platform/v1/products`

@@ -1,0 +1,73 @@
+#!/usr/bin/env bash
+# Polls every service in the local stack until healthy or times out.
+# Checks match the services the generator actually emitted for this project.
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+
+# Host ports are resolved per machine by local/scripts/ports.sh.
+set -a
+. "$ROOT/local/.env"
+set +a
+COMPOSE="docker compose -f ${ROOT}/local/docker-compose.yml"
+TIMEOUT="${HEALTH_TIMEOUT:-120}"
+INTERVAL=3
+
+echo "==> Health check for koras-e2e-shop (product) — timeout ${TIMEOUT}s"
+
+# wait_for <name> <shell command>
+wait_for() {
+  local name="$1" check="$2" elapsed=0
+  printf "%-20s" "${name}..."
+  while true; do
+    if eval "$check" >/dev/null 2>&1; then
+      echo "OK"
+      return 0
+    fi
+    sleep "$INTERVAL"
+    elapsed=$((elapsed + INTERVAL))
+    if [ "$elapsed" -ge "$TIMEOUT" ]; then
+      echo "TIMEOUT"
+      echo "Error: ${name} did not become healthy within ${TIMEOUT}s." >&2
+      exit 1
+    fi
+  done
+}
+
+# Postgres speaks its own protocol — pg_isready inside the container, not HTTP.
+wait_for "Supabase DB" "${COMPOSE} exec -T supabase-db pg_isready -U postgres"
+wait_for "Redis"       "${COMPOSE} exec -T redis redis-cli ping | grep -q PONG"
+wait_for "ZITADEL"     "curl -sf --max-time 2 http://localhost:${KORAS_PORT_ZITADEL}/debug/ready"
+wait_for "Mailpit"     "curl -sf --max-time 2 http://localhost:${KORAS_PORT_MAIL_UI}/"
+wait_for "MinIO"       "curl -sf --max-time 2 http://localhost:${KORAS_PORT_MINIO_API}/minio/health/live"
+wait_for "Proxy"       "${COMPOSE} ps --status running --services | grep -q '^proxy$'"
+
+# Loki and Tempo publish no host port and their images carry no HTTP client, so
+# there is nothing to probe from here. A crash-looping container is not reported
+# as running, which is what this needs to catch.
+wait_for "Loki"        "${COMPOSE} ps --status running --services | grep -q '^loki$'"
+wait_for "Tempo"       "${COMPOSE} ps --status running --services | grep -q '^tempo$'"
+# The collector is probed for real: an empty OTLP payload exercises the receiver
+# rather than merely confirming the process is alive.
+wait_for "OTel"        "curl -sf --max-time 2 -o /dev/null -X POST -H 'content-type: application/json' -d '{\"resourceSpans\":[]}' http://localhost:${KORAS_PORT_OTLP_HTTP}/v1/traces"
+
+# The Python services run on the host under `make dev`, not in Compose, so they
+# are reported rather than waited for: `make health` is expected to pass on a
+# freshly bootstrapped stack where only the infrastructure is up. Reporting
+# beats omitting -- "not running" is an answer, and the absence of a line is
+# not.
+printf "%-20s" "API..."
+if curl -sf --max-time 2 "http://localhost:${KORAS_PORT_SERVICE_API}/api/v1/health" >/dev/null 2>&1; then
+  echo "OK"
+else
+  echo "not running (start with: make dev)"
+fi
+echo ""
+echo "All infrastructure services healthy."
+echo ""
+echo "  Web:        https://app.localhost:${KORAS_PORT_PROXY_HTTPS}"
+echo "  Admin:      https://admin.localhost:${KORAS_PORT_PROXY_HTTPS}"
+echo "  API:        https://api.localhost:${KORAS_PORT_PROXY_HTTPS}"
+echo "  ZITADEL:    http://localhost:${KORAS_PORT_ZITADEL}/ui/console"
+echo "  Mailpit:    http://localhost:${KORAS_PORT_MAIL_UI}"
+echo "  MinIO:      http://localhost:9001"

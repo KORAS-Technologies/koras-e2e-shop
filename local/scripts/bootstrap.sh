@@ -1,0 +1,111 @@
+#!/usr/bin/env bash
+# Full local environment bootstrap.
+# Safe to re-run — idempotent where possible.
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+PROFILE="${KORAS_PROFILE:-product}"
+
+echo "==> Bootstrapping KORAS local environment (profile: ${PROFILE})"
+echo ""
+
+# 1. Node dependencies
+echo "--> Installing Node dependencies..."
+cd "$ROOT" && pnpm install
+
+# 2. Python dependencies
+echo "--> Installing Python dependencies..."
+cd "$ROOT" && uv sync --all-packages
+
+# 3. TLS certificates
+# Guard on whether any certificate exists rather than one named host: which
+# hosts are generated depends on the profile, so a hardcoded name can be one
+# this profile never produces -- in which case the check never passes and certs
+# are regenerated on every run.
+if ! compgen -G "$ROOT/local/certs/*.pem" > /dev/null; then
+  echo "--> Generating TLS certificates..."
+  bash "$ROOT/local/certs/generate.sh"
+else
+  echo "--> TLS certificates already present, skipping."
+fi
+
+# Resolve host ports before anything binds them, then load the assignments so
+# the URLs below match what Compose actually publishes.
+bash "$ROOT/local/scripts/ports.sh"
+set -a
+. "$ROOT/local/.env"
+set +a
+
+# 4. Pull Docker images
+echo "--> Pulling Docker images..."
+# One rendered compose file per project — the profile decided what went into it
+# at generation time, so there is nothing to layer here.
+COMPOSE_FILES="-f $ROOT/local/docker-compose.yml"
+docker compose $COMPOSE_FILES pull --quiet
+
+# 5. Start every container. All of them are infrastructure: the applications and
+# services run on the host under `make dev`, not in Compose. Naming a subset
+# here leaves the proxy and the observability pipeline down after `make reset`,
+# which `make health` then correctly reports as a failure.
+echo "--> Starting infrastructure services..."
+docker compose $COMPOSE_FILES up -d
+
+# 6. Wait for Supabase DB
+echo "--> Waiting for Supabase DB..."
+until docker compose $COMPOSE_FILES exec -T supabase-db pg_isready -U postgres >/dev/null 2>&1; do
+  sleep 2
+done
+echo "    Supabase DB ready."
+
+# 7. Wait for ZITADEL
+echo "--> Waiting for ZITADEL..."
+until curl -sf "http://localhost:${KORAS_PORT_ZITADEL}/debug/ready" >/dev/null 2>&1; do
+  sleep 3
+done
+echo "    ZITADEL ready."
+
+# 8. Initialize ZITADEL
+echo "--> Initializing ZITADEL..."
+ZITADEL_URL=http://localhost:${KORAS_PORT_ZITADEL} bash "$ROOT/local/zitadel/init.sh"
+
+# 9. Create .env.local from the template if it is missing.
+if [ ! -f "$ROOT/.env.local" ]; then
+  echo "--> Creating .env.local from example..."
+  cp "$ROOT/local/config/.env.local.example" "$ROOT/.env.local"
+  echo "    Populate the secret values from Doppler before running the services."
+fi
+
+# 10. Reconcile .env.local with the ports actually resolved, and add any key the
+# template has gained since the file was created. Both matter. `make ports` can
+# reassign a port when another stack takes it, and a stale .env.local then aims a
+# service at whatever now holds the old number -- possibly another KORAS
+# project database or queue. Replace-or-append, so re-running is idempotent
+# and an older .env.local picks up newly required settings rather than failing at
+# startup with no explanation.
+echo "--> Reconciling .env.local with resolved host ports..."
+
+set_env_var() {
+  local key="$1" value="$2" file="$ROOT/.env.local"
+  if grep -q "^${key}=" "$file"; then
+    sed -i "s#^${key}=.*#${key}=${value}#" "$file"
+  else
+    echo "    + ${key} (added)"
+    echo "${key}=${value}" >> "$file"
+  fi
+}
+
+set_env_var ENVIRONMENT "dev"
+set_env_var DATABASE_URL "postgresql://postgres:postgres@localhost:${KORAS_PORT_SUPABASE_DB}/postgres"
+set_env_var ZITADEL_DOMAIN "http://localhost:${KORAS_PORT_ZITADEL}"
+set_env_var REDIS_URL "redis://localhost:${KORAS_PORT_REDIS}"
+set_env_var SMTP_PORT "${KORAS_PORT_MAIL_SMTP}"
+set_env_var OTEL_EXPORTER_OTLP_ENDPOINT "http://localhost:${KORAS_PORT_OTLP_GRPC}"
+
+# 11. Apply the schema. Without this the local database has no tables at all, so
+# nothing that touches persistence can be developed or tested.
+echo "--> Applying database schema..."
+bash "$ROOT/local/scripts/migrate.sh"
+
+echo ""
+echo "==> Bootstrap complete."
+echo "    Run: make dev"

@@ -1,0 +1,177 @@
+# Host ports come from local/.env, written by local/scripts/ports.sh so that a
+# busy port on one machine does not wedge the whole stack. The `{{!}}` after each
+# preference is an empty Handlebars comment: without it the template's `}}` and
+# the shell's closing `}` would collide into `}}}`, which Handlebars misreads as
+# a triple-stash. It renders nothing.
+name: koras-e2e-shop
+
+services:
+  # ── Database (Supabase local) ───────────────────────────────────────────────
+  supabase-db:
+    image: supabase/postgres:15.6.1.143
+    restart: unless-stopped
+    environment:
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: postgres
+    ports:
+      - "${KORAS_PORT_SUPABASE_DB:-54322}:5432"
+    volumes:
+      - supabase-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ── ZITADEL (identity provider) ────────────────────────────────────────────
+  zitadel:
+    image: ghcr.io/zitadel/zitadel:v4.17.1
+    restart: unless-stopped
+    command: start-from-init --masterkeyFromEnv --tlsMode disabled
+    environment:
+      ZITADEL_MASTERKEY: MasterkeyNeedsToHave32Characters
+      ZITADEL_DATABASE_POSTGRES_HOST: supabase-db
+      ZITADEL_DATABASE_POSTGRES_PORT: 5432
+      ZITADEL_DATABASE_POSTGRES_DATABASE: zitadel
+      ZITADEL_DATABASE_POSTGRES_USER_USERNAME: postgres
+      ZITADEL_DATABASE_POSTGRES_USER_PASSWORD: postgres
+      ZITADEL_DATABASE_POSTGRES_USER_SSL_MODE: disable
+      ZITADEL_DATABASE_POSTGRES_ADMIN_USERNAME: postgres
+      ZITADEL_DATABASE_POSTGRES_ADMIN_PASSWORD: postgres
+      ZITADEL_DATABASE_POSTGRES_ADMIN_SSL_MODE: disable
+      ZITADEL_EXTERNALSECURE: "false"
+      ZITADEL_EXTERNALPORT: ${KORAS_PORT_ZITADEL:-8080}
+      ZITADEL_EXTERNALDOMAIN: localhost
+      # First-instance bootstrap, applied only when the instance is created.
+      # Changing any of it requires dropping the zitadel database; see
+      # local/zitadel/init.sh.
+      #
+      # The machine user is how the application talks to ZITADEL. Its personal
+      # access token is written where the host can read it, which is the only
+      # way to get a usable credential without clicking through the console.
+      ZITADEL_FIRSTINSTANCE_ORG_NAME: koras
+      ZITADEL_FIRSTINSTANCE_ORG_HUMAN_USERNAME: admin
+      ZITADEL_FIRSTINSTANCE_ORG_HUMAN_PASSWORD: Password1!
+      ZITADEL_FIRSTINSTANCE_ORG_HUMAN_PASSWORDCHANGEREQUIRED: "false"
+      ZITADEL_FIRSTINSTANCE_ORG_MACHINE_MACHINE_USERNAME: koras-e2e-shop
+      ZITADEL_FIRSTINSTANCE_ORG_MACHINE_MACHINE_NAME: koras-e2e-shop
+      ZITADEL_FIRSTINSTANCE_ORG_MACHINE_PAT_EXPIRATIONDATE: "2100-01-01T00:00:00Z"
+      ZITADEL_FIRSTINSTANCE_PATPATH: /machinekey/pat
+    ports:
+      - "${KORAS_PORT_ZITADEL:-8080}:8080"
+    volumes:
+      # The PAT lands here so the host can read it. Local development only, and
+      # gitignored: it is a real credential for the local instance.
+      - ./zitadel/machinekey:/machinekey
+    depends_on:
+      supabase-db:
+        condition: service_healthy
+    # No container healthcheck: the image is distroless (no curl/wget) and
+    # `zitadel ready` reports not-ready against a server that is serving
+    # traffic. `make health` probes http://localhost:8080/debug/ready instead.
+
+  # ── Redis (queue + cache) ───────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "${KORAS_PORT_REDIS:-6379}:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # ── Mail (Mailpit) ──────────────────────────────────────────────────────────
+  mail:
+    image: axllent/mailpit:latest
+    restart: unless-stopped
+    ports:
+      - "${KORAS_PORT_MAIL_SMTP:-1025}:1025"   # SMTP
+      - "${KORAS_PORT_MAIL_UI:-8025}:8025"   # Web UI
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8025/"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Storage (MinIO) ─────────────────────────────────────────────────────────
+  storage:
+    image: minio/minio:latest
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minio
+      MINIO_ROOT_PASSWORD: miniominio
+    ports:
+      - "${KORAS_PORT_MINIO_API:-9000}:9000"
+      - "${KORAS_PORT_MINIO_CONSOLE:-9001}:9001"
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Observability ────────────────────────────────────────────────────────────
+  # Services export OTLP to the collector, which fans traces out to Tempo and
+  # logs to Loki. Only the collector publishes host ports: Loki and Tempo are
+  # reached by service name inside this network, and leaving them unpublished
+  # keeps two host ports free on a machine running several stacks.
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.115.1
+    restart: unless-stopped
+    command: ["--config=/etc/otel-collector.yml"]
+    ports:
+      - "${KORAS_PORT_OTLP_GRPC:-4317}:4317"
+      - "${KORAS_PORT_OTLP_HTTP:-4318}:4318"
+    volumes:
+      - ./observability/otel-collector.yml:/etc/otel-collector.yml:ro
+    depends_on:
+      - loki
+      - tempo
+
+  loki:
+    image: grafana/loki:3.3.2
+    restart: unless-stopped
+    command: ["-config.file=/etc/loki/loki.yml"]
+    volumes:
+      - ./observability/loki.yml:/etc/loki/loki.yml:ro
+      - loki-data:/loki
+
+  tempo:
+    image: grafana/tempo:2.6.1
+    restart: unless-stopped
+    command: ["-config.file=/etc/tempo/tempo.yml"]
+    volumes:
+      - ./observability/tempo.yml:/etc/tempo/tempo.yml:ro
+      - tempo-data:/var/tempo
+
+  # ── Proxy (Caddy) ───────────────────────────────────────────────────────────
+  proxy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "${KORAS_PORT_PROXY_HTTP:-8090}:80"
+      - "${KORAS_PORT_PROXY_HTTPS:-8443}:443"
+    environment:
+      KORAS_PORT_APP_WEB: ${KORAS_PORT_APP_WEB:-3000}
+      KORAS_PORT_APP_ADMIN: ${KORAS_PORT_APP_ADMIN:-3001}
+      KORAS_PORT_SERVICE_API: ${KORAS_PORT_SERVICE_API:-8000}
+    volumes:
+      - ./proxy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./certs:/certs:ro
+      - caddy-data:/data
+    depends_on:
+      - zitadel
+
+volumes:
+  supabase-db:
+  redis-data:
+  minio-data:
+  caddy-data:
+  loki-data:
+  tempo-data:

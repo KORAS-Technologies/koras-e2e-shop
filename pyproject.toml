@@ -1,0 +1,94 @@
+[project]
+name = "koras-e2e-shop"
+version = "0.1.0"
+description = "koras-e2e-shop — Python services"
+requires-python = ">=3.12"
+
+[tool.uv.workspace]
+members = [
+  "python-packages/*",
+  "services/*",
+]
+
+[dependency-groups]
+dev = [
+  "pytest>=8.0.0",
+  "pytest-asyncio>=0.23.0",
+  "pytest-cov>=5.0.0",
+  "ruff>=0.5.0",
+  "mypy>=1.10.0",
+  "httpx>=0.27.0",
+  "pyyaml>=6.0",
+  "types-PyYAML>=6.0",
+  # The API itself, so the root test suite can import the app and assert things
+  # about the surface it actually serves. It is a workspace *member*, which
+  # makes it buildable; without also being a dependency here it is not installed
+  # into the root environment, and `tests/` could not import it at all -- so
+  # every test about the API had to read its source instead of asking it.
+  "koras-e2e-shop-api",
+  # Same reason as the API above, and the same trap. `koras-email` is a
+  # workspace member, which makes it buildable and does not install it -- so its
+  # own tests could not import it and silently collected nothing. Nothing
+  # *depends* on it yet, deliberately: a service adds it when it has a message
+  # to send. Until then this is what makes its tests run at all.
+  "koras-email",
+]
+
+[tool.uv.sources]
+"koras-e2e-shop-api" = { workspace = true }
+koras-email = { workspace = true }
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+extend-exclude = [
+  # Vendored third-party skills, copied in verbatim as a shared asset. Their
+  # content is upstream's to lint, and reformatting it here would turn every
+  # skill update into a conflict. The starter excludes the same tree for the
+  # same reason; this file did not, so a generated project reported 19 errors
+  # in code it does not own -- and nothing ran ruff on a generated project to
+  # notice.
+  ".claude/skills",
+]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "S", "ANN"]
+ignore = []
+
+[tool.ruff.lint.per-file-ignores]
+# S101 bans `assert`, which is precisely how pytest expresses expectations.
+#
+# `**/tests/**`, not `tests/**`: the latter matches only the top-level suite and
+# leaves every `python-packages/*/tests/` tripping S101 on its own assertions.
+# Scoped to test trees rather than disabled globally, so an assert in a service
+# still fails.
+"**/tests/**" = ["S101"]
+"**/test_*.py" = ["S101"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+# NOT `ignore_missing_imports = true`. That setting is global, and it makes mypy
+# treat *any* unresolvable import as `Any` -- including a first-party module
+# that does not exist. A missing `from .tenant import TenantDep` then typechecks
+# clean and fails at runtime with ModuleNotFoundError, which is exactly what
+# happened: a green `mypy` sat on top of an API that could not start. See R-032.
+#
+# Narrowed to the packages that genuinely ship no stubs, found by turning the
+# global setting off and reading what actually complained. It was one.
+ignore_missing_imports = false
+
+[[tool.mypy.overrides]]
+# The packages that genuinely ship no type information and have no stubs.
+#
+# apscheduler is listed even where no scheduler is generated: it is an optional
+# service in the product profile, so `--with scheduler` would otherwise fail a
+# check that passed before the flag was used. A module named here and never
+# imported is inert; one missing when it is needed is a broken build.
+module = ["jose.*", "apscheduler.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests", "python-packages", "services"]
+addopts = "--cov --cov-report=term-missing"
