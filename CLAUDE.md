@@ -11,7 +11,7 @@ using `--profile product`.
 |------|---------|
 | Applications | `admin` `web`  |
 | Services | `api` `worker`  |
-| Capabilities | `audit` `billing` `branding` `control_plane_client` `custom_domains` `customer_branding` `email` `feature_flags` `notifications` `observability` `rls` `storage` `tenancy`  |
+| Capabilities | `audit` `billing` `branding` `custom_domains` `customer_branding` `email` `feature_flags` `notifications` `observability` `rls` `storage` `tenancy`  |
 
 Components absent from this list were not selected at generation time. Do not
 add an application or service directory by hand — regenerate or extend the

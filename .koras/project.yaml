@@ -22,7 +22,6 @@ components:
     - audit
     - billing
     - branding
-    - control_plane_client
     - custom_domains
     - customer_branding
     - email

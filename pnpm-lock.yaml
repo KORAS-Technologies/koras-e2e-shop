@@ -194,6 +194,9 @@ importers:
 
   packages/branding:
     devDependencies:
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.20.1
       rimraf:
         specifier: ^6.0.0
         version: 6.1.3
@@ -202,15 +205,6 @@ importers:
         version: 5.9.3
 
   packages/config:
-    devDependencies:
-      rimraf:
-        specifier: ^6.0.0
-        version: 6.1.3
-      typescript:
-        specifier: ^5.5.0
-        version: 5.9.3
-
-  packages/control-plane-client:
     devDependencies:
       rimraf:
         specifier: ^6.0.0
@@ -319,7 +313,26 @@ importers:
         version: 5.9.3
 
   packages/ui:
+    dependencies:
+      '@koras-e2e-shop/branding':
+        specifier: workspace:*
+        version: link:../branding
+      next:
+        specifier: ^15.1.0
+        version: 15.5.24(@types/node@22.20.1)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+      react:
+        specifier: ^19.0.0
+        version: 19.2.8
+      react-dom:
+        specifier: ^19.0.0
+        version: 19.2.8(react@19.2.8)
     devDependencies:
+      '@types/react':
+        specifier: ^19.0.0
+        version: 19.2.18
+      '@types/react-dom':
+        specifier: ^19.0.0
+        version: 19.2.5(@types/react@19.2.18)
       rimraf:
         specifier: ^6.0.0
         version: 6.1.3
