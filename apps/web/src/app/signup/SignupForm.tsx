@@ -1,6 +1,8 @@
 'use client'
 
 import { useActionState } from 'react'
+import { useFormStatus } from 'react-dom'
+import { Button, SelectField, TextField } from '@koras-e2e-shop/ui'
 import type { PublicPlan } from './actions'
 import { startSignup } from './actions'
 import { IDLE } from './state'
@@ -17,56 +19,55 @@ import { IDLE } from './state'
  * Three fields, because the Control Plane needs three things. Anything else --
  * team size, how they heard about us -- belongs after they have an account, not
  * between them and one.
+ *
+ * The fields are `TextField` and `SelectField` from the design system rather
+ * than bare inputs, which is what ties `aria-invalid`, `aria-describedby` and
+ * the error message together. Doing it by hand per field is how a form ends up
+ * announcing that something is invalid without ever saying what.
  */
 export function SignupForm({ plans }: { plans: PublicPlan[] }) {
   const [state, action] = useActionState(startSignup, IDLE)
 
   if (state.status === 'ok') {
     return (
-      <div data-testid="signup-sent">
-        <h2>Check your email</h2>
-        <p>{state.message}</p>
+      <div data-testid="signup-sent" className="rounded-brand border border-line bg-surface-muted p-5">
+        <h2 className="font-display text-lg font-bold text-ink">Check your email</h2>
+        <p className="mt-2 leading-7 text-ink-muted">{state.message}</p>
       </div>
     )
   }
 
+  const fieldError = (name: string) =>
+    state.status === 'error' && state.field === name ? state.message : undefined
+
   return (
-    <form action={action} data-testid="signup-form">
-      <label htmlFor="signup-organizationName">Organisation</label>
-      <input
+    <form action={action} data-testid="signup-form" className="flex flex-col gap-5">
+      <TextField
         id="signup-organizationName"
         name="organizationName"
+        label="Organisation"
         required
         autoComplete="organization"
-        aria-invalid={state.field === 'organizationName' ? true : undefined}
-        aria-describedby={
-          state.field === 'organizationName' ? 'signup-organizationName-error' : undefined
-        }
+        error={fieldError('organizationName')}
       />
-      {state.field === 'organizationName' ? (
-        <p id="signup-organizationName-error" role="alert">
-          {state.message}
-        </p>
-      ) : null}
 
-      <label htmlFor="signup-email">Work email</label>
-      <input
+      <TextField
         id="signup-email"
         name="email"
         type="email"
+        label="Work email"
         required
         autoComplete="email"
-        aria-invalid={state.field === 'email' ? true : undefined}
-        aria-describedby={state.field === 'email' ? 'signup-email-error' : undefined}
+        error={fieldError('email')}
       />
-      {state.field === 'email' ? (
-        <p id="signup-email-error" role="alert">
-          {state.message}
-        </p>
-      ) : null}
 
-      <label htmlFor="signup-ownerName">Your name (optional)</label>
-      <input id="signup-ownerName" name="ownerName" autoComplete="name" />
+      <TextField
+        id="signup-ownerName"
+        name="ownerName"
+        label="Your name"
+        hint="Optional."
+        autoComplete="name"
+      />
 
       {/*
         One plan is not a choice, so it is not presented as one -- a select with
@@ -76,31 +77,61 @@ export function SignupForm({ plans }: { plans: PublicPlan[] }) {
       {plans.length === 1 ? (
         <input type="hidden" name="planCode" value={plans[0]!.code} />
       ) : (
-        <>
-          <label htmlFor="signup-planCode">Plan</label>
-          <select id="signup-planCode" name="planCode" required defaultValue={plans[0]?.code}>
-            {plans.map((plan) => (
-              <option key={plan.code} value={plan.code}>
-                {plan.name}
-              </option>
-            ))}
-          </select>
-        </>
+        <SelectField
+          id="signup-planCode"
+          name="planCode"
+          label="Plan"
+          required
+          defaultValue={plans[0]?.code}
+        >
+          {plans.map((plan) => (
+            <option key={plan.code} value={plan.code}>
+              {plan.name}
+            </option>
+          ))}
+        </SelectField>
       )}
 
       {/* Announced, because the page does not navigate and a screen reader has
           no other way to learn the form did anything. */}
       <div aria-live="polite">
         {state.status === 'error' && !state.field ? (
-          <p role="alert" data-testid="signup-error">
+          <p
+            role="alert"
+            data-testid="signup-error"
+            className="rounded-brand border border-red-200 bg-red-50 p-4 text-sm font-medium text-red-800"
+          >
             {state.message}
           </p>
         ) : null}
       </div>
 
-      <button type="submit" data-testid="signup-submit">
-        Create account
-      </button>
+      <SubmitButton />
+
+      <p className="text-sm leading-6 text-ink-muted">
+        We will email you a link to confirm the address. Nothing is created until you open it.
+      </p>
     </form>
+  )
+}
+
+/**
+ * The submit control, as its own component.
+ *
+ * `useFormStatus` reports the status of the form it is rendered *inside*, so it
+ * cannot be read by the component that renders the `<form>` -- it would always
+ * see "idle". A child is not a stylistic choice here; it is the only place the
+ * hook works.
+ *
+ * Without it the form is submitted, the page does not navigate, and nothing on
+ * screen changes for as long as the Control Plane takes to answer -- which is
+ * the shape of interaction that gets a button pressed four times.
+ */
+function SubmitButton() {
+  const { pending } = useFormStatus()
+  return (
+    <Button type="submit" size="lg" loading={pending} data-testid="signup-submit">
+      {pending ? 'Creating your account' : 'Create account'}
+    </Button>
   )
 }

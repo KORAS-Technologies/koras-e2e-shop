@@ -1,5 +1,11 @@
 {
   "extends": "../../tsconfig.base.json",
-  "compilerOptions": { "rootDir": "src", "outDir": "dist" },
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "noEmit": true,
+    "rootDir": "src",
+    "allowImportingTsExtensions": false,
+    "moduleResolution": "bundler"
+  },
   "include": ["src"]
 }
