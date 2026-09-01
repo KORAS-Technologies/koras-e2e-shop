@@ -193,6 +193,10 @@ importers:
         version: 5.9.3
 
   packages/branding:
+    dependencies:
+      '@koras-e2e-shop/permissions':
+        specifier: workspace:*
+        version: link:../permissions
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -269,6 +273,9 @@ importers:
 
   packages/permissions:
     devDependencies:
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.20.1
       rimraf:
         specifier: ^6.0.0
         version: 6.1.3
@@ -317,6 +324,9 @@ importers:
       '@koras-e2e-shop/branding':
         specifier: workspace:*
         version: link:../branding
+      '@koras-e2e-shop/permissions':
+        specifier: workspace:*
+        version: link:../permissions
       next:
         specifier: ^15.1.0
         version: 15.5.24(@types/node@22.20.1)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)

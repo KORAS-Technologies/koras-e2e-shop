@@ -12,6 +12,9 @@
     "clean": "rimraf dist",
     "test": "tsc && node --test dist/*.test.js"
   },
+  "dependencies": {
+    "@koras-e2e-shop/permissions": "workspace:*"
+  },
   "devDependencies": {
     "@types/node": "^22.0.0",
     "typescript": "^5.5.0",
