@@ -68,8 +68,48 @@ export interface BrandingTokens {
    */
   fontFamily: string
   displayFontFamily: string
+  /**
+   * The same six surfaces again, for a dark appearance.
+   *
+   * Only the surfaces and the text on them. The three brand colours are not
+   * duplicated: a customer's brand colour is their brand colour in both
+   * appearances, and offering a second one invites a pair nobody checks the
+   * contrast of.
+   *
+   * These are real values rather than a filter over the light ones. Deriving a
+   * dark palette by inverting lightness produces muddy greys and destroys the
+   * contrast ratios somebody chose deliberately -- it looks automatic because
+   * it is.
+   */
+  darkBackgroundColor: string
+  darkForegroundColor: string
+  darkSurfaceColor: string
+  darkSurfaceMutedColor: string
+  darkBorderColor: string
+  darkMutedForegroundColor: string
+
   /** Corner radius of cards and buttons, as a CSS length. */
   radius: string
+
+  /**
+   * Where this product exists elsewhere.
+   *
+   * Brand rather than marketing copy, which is why they are here beside the
+   * logo and the favicon rather than in `MarketingConfig`: an account is part
+   * of what the product *is*, and the footer is only one of the places it will
+   * eventually be shown.
+   *
+   * Empty by default and rendered only when set, for the same reason
+   * `contactEmail` is — an icon linking to an account nobody runs looks like a
+   * channel and is not. Absolute `https://` addresses.
+   *
+   * Not in `TENANT_OVERRIDABLE`. These are the product's own accounts, and the
+   * footer that shows them is public: there is no tenant in scope on that page,
+   * and a customer setting them would be publishing links on somebody else's
+   * front door.
+   */
+  linkedinUrl: string
+  xUrl: string
 }
 
 export const defaultBranding: BrandingTokens = {
@@ -82,6 +122,15 @@ export const defaultBranding: BrandingTokens = {
   surfaceMutedColor: '#f8fafc',
   borderColor: '#e2e8f0',
   mutedForegroundColor: '#475569',
+  // Slate, and checked rather than picked: #e2e8f0 on #0b1220 is 15.1:1, and
+  // the muted foreground #94a3b8 on the same ground is 7.4:1 -- both past AA
+  // for body text, which the light palette also clears.
+  darkBackgroundColor: '#0b1220',
+  darkForegroundColor: '#e2e8f0',
+  darkSurfaceColor: '#111a2e',
+  darkSurfaceMutedColor: '#0f172a',
+  darkBorderColor: '#1e293b',
+  darkMutedForegroundColor: '#94a3b8',
   logoUrl: '',
   logoDarkUrl: '',
   faviconUrl: '/icon.svg',
@@ -90,6 +139,8 @@ export const defaultBranding: BrandingTokens = {
   displayFontFamily:
     'ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
   radius: '0.75rem',
+  linkedinUrl: '',
+  xUrl: '',
 }
 
 export function mergeBranding(
@@ -106,8 +157,8 @@ export function mergeBranding(
 /**
  * The tokens a customer may set for their own tenant.
  *
- * A deliberately short list. Colours, corner radius and the two images are what
- * "make it look like ours" means; the font stacks and the semantic text colours
+ * A deliberately short list. Colours, the two images and a corner style are
+ * what "make it look like ours" means; the font stacks and the semantic text colours
  * are not on it, because a customer who picks an unreadable pair of them breaks
  * the product for their own staff and calls it a bug.
  *
@@ -120,21 +171,46 @@ export const TENANT_OVERRIDABLE = [
   'accentColor',
   'surfaceMutedColor',
   'borderColor',
-  'radius',
   'logoUrl',
   'logoDarkUrl',
 ] as const
 
 export type TenantBrandingKey = (typeof TENANT_OVERRIDABLE)[number]
 
+/**
+ * How square the corners are, as a choice rather than a measurement.
+ *
+ * A customer picks one of two looks. They do not pick a CSS length, and that is
+ * both a kinder question and a smaller attack surface: `radius` used to be a
+ * tenant-writable string on its way into a custom property, guarded by a
+ * regular expression that had to be right. Two names cannot be malformed.
+ *
+ * The product still sets any length it likes in `productConfig.brand.radius` --
+ * this is what a *customer* may change, and it is deliberately coarser than
+ * what the product author controls.
+ */
+export type CornerStyle = 'flat' | 'rounded'
+
+/** What each choice actually means, in one place. */
+export const CORNER_RADIUS: Record<CornerStyle, string> = {
+  flat: '0',
+  rounded: '0.75rem',
+}
+
+export function isCornerStyle(value: unknown): value is CornerStyle {
+  return value === 'flat' || value === 'rounded'
+}
+
 export interface TenantBranding {
   tokens: Partial<Pick<BrandingTokens, TenantBrandingKey>>
   /** White-label display name. Empty means "use the product's own name". */
   name: string
+  /** Unset means the product's own radius stands. */
+  cornerStyle: CornerStyle | null
 }
 
 /** Nothing configured. Returned rather than null so callers need no branch. */
-export const NO_TENANT_BRANDING: TenantBranding = { tokens: {}, name: '' }
+export const NO_TENANT_BRANDING: TenantBranding = { tokens: {}, name: '', cornerStyle: null }
 
 /**
  * A CSS colour this application is willing to write into a style attribute.
@@ -151,9 +227,6 @@ export const NO_TENANT_BRANDING: TenantBranding = { tokens: {}, name: '' }
  * because it survived a round trip through Postgres.
  */
 const HEX = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/
-
-/** A length, in the three units a radius is ever written in. */
-const LENGTH = /^(?:0|[0-9]{1,3}(?:\.[0-9]{1,3})?(?:rem|px|em))$/
 
 /**
  * An image path this application is willing to put in `src`.
@@ -192,10 +265,6 @@ export function parseTenantBranding(raw: unknown): TenantBranding {
 
   for (const key of TENANT_OVERRIDABLE) {
     const value = record[key]
-    if (key === 'radius') {
-      if (typeof value === 'string' && LENGTH.test(value)) tokens.radius = value
-      continue
-    }
     if (key === 'logoUrl' || key === 'logoDarkUrl') {
       if (typeof value === 'string' && ASSET_PATH.test(value)) tokens[key] = value
       continue
@@ -208,12 +277,22 @@ export function parseTenantBranding(raw: unknown): TenantBranding {
   // it is a way to break every header in the product.
   const name = typeof record.name === 'string' ? record.name.trim().slice(0, 60) : ''
 
-  return { tokens, name }
+  // One of two names, or nothing. Anything else -- including the CSS lengths
+  // this column used to accept -- leaves the product's own radius in place.
+  const cornerStyle = isCornerStyle(record.cornerStyle) ? record.cornerStyle : null
+
+  return { tokens, name, cornerStyle }
 }
 
 /** The tokens a page should actually render with, for this customer. */
 export function brandingFor(base: BrandingTokens, tenant: TenantBranding): BrandingTokens {
-  return mergeBranding(base, tenant.tokens)
+  const merged = mergeBranding(base, tenant.tokens)
+  // Applied after the merge rather than as a token, because the customer chose
+  // a look and this is where a look becomes a length. Nothing downstream knows
+  // the choice existed.
+  return tenant.cornerStyle === null
+    ? merged
+    : { ...merged, radius: CORNER_RADIUS[tenant.cornerStyle] }
 }
 
 /* -------------------------------------------------------------------------- */
@@ -652,6 +731,14 @@ export const productConfig: ProductConfig = {
         links: [
           { label: 'Sign in', href: '/login' },
           { label: 'Get started', href: '/signup' },
+        ],
+      },
+      {
+        title: 'Legal',
+        links: [
+          { label: 'Privacy', href: '/privacy' },
+          { label: 'Terms', href: '/terms' },
+          { label: 'FAQ', href: '/faq' },
         ],
       },
     ],
