@@ -90,6 +90,9 @@ importers:
 
   apps/web:
     dependencies:
+      '@koras-e2e-shop/api-client':
+        specifier: workspace:*
+        version: link:../../packages/api-client
       '@koras-e2e-shop/auth':
         specifier: workspace:*
         version: link:../../packages/auth

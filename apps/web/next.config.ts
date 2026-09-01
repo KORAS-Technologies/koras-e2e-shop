@@ -33,6 +33,7 @@ const nextConfig: NextConfig = {
   // Workspace packages ship TypeScript sources rather than built output, so
   // Next has to compile them itself.
   transpilePackages: [
+    '@koras-e2e-shop/api-client',
     '@koras-e2e-shop/auth',
     '@koras-e2e-shop/branding',
     '@koras-e2e-shop/config',

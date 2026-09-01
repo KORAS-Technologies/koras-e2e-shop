@@ -1663,10 +1663,14 @@ version = "0.1.0"
 source = { editable = "python-packages/koras-tenant" }
 dependencies = [
     { name = "koras-auth" },
+    { name = "sqlalchemy" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "koras-auth", editable = "python-packages/koras-auth" }]
+requires-dist = [
+    { name = "koras-auth", editable = "python-packages/koras-auth" },
+    { name = "sqlalchemy", specifier = ">=2.0.0" },
+]
 
 [[package]]
 name = "librt"
