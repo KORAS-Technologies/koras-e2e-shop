@@ -1,4 +1,5 @@
-import { productConfig } from '@koras-e2e-shop/branding'
+import { marketingFor } from '@koras-e2e-shop/branding'
+import type { Locale } from '@koras-e2e-shop/i18n'
 import { Section } from '../primitives/section'
 
 /**
@@ -12,8 +13,8 @@ import { Section } from '../primitives/section'
  * An ordered list in the markup, so the order survives being read aloud rather
  * than living only in a styled digit.
  */
-export function HowItWorks() {
-  const { marketing } = productConfig
+export function HowItWorks({ locale }: { locale: Locale }) {
+  const marketing = marketingFor(locale)
   if (marketing.steps.length === 0) return null
 
   return (

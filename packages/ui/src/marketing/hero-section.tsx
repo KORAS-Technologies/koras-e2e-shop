@@ -1,4 +1,5 @@
-import { productConfig } from '@koras-e2e-shop/branding'
+import { marketingFor } from '@koras-e2e-shop/branding'
+import type { Locale } from '@koras-e2e-shop/i18n'
 import { ButtonLink } from '../primitives/button'
 import { Container } from '../primitives/container'
 import { appHref } from '../lib/links'
@@ -17,8 +18,8 @@ import { ProductVisual } from './product-visual'
  * responsive one: the proposition is read before the picture of the product,
  * whichever way the page is being consumed.
  */
-export function HeroSection() {
-  const { marketing } = productConfig
+export function HeroSection({ locale }: { locale: Locale }) {
+  const marketing = marketingFor(locale)
 
   return (
     <section className="brand-grid bg-brand-ink text-white">
@@ -51,7 +52,7 @@ export function HeroSection() {
         </div>
 
         <div className="lg:pl-4">
-          <ProductVisual image={marketing.heroImage} priority />
+          <ProductVisual image={marketing.heroImage} locale={locale} priority />
         </div>
       </Container>
     </section>

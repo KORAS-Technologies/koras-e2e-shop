@@ -1,5 +1,5 @@
 {
-  "name": "@koras-e2e-shop/branding",
+  "name": "@koras-e2e-shop/i18n",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -11,10 +11,6 @@
     "typecheck": "tsc --noEmit",
     "clean": "rimraf dist",
     "test": "tsc && node --test dist/*.test.js"
-  },
-  "dependencies": {
-    "@koras-e2e-shop/i18n": "workspace:*",
-    "@koras-e2e-shop/permissions": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

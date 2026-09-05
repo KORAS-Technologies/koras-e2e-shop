@@ -38,6 +38,7 @@ const nextConfig: NextConfig = {
     '@koras-e2e-shop/branding',
     '@koras-e2e-shop/config',
     '@koras-e2e-shop/feature-flags',
+    '@koras-e2e-shop/i18n',
     '@koras-e2e-shop/permissions',
     '@koras-e2e-shop/tenant',
     '@koras-e2e-shop/types',

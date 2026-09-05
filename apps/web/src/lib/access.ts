@@ -2,6 +2,8 @@ import { NO_TENANT_BRANDING, productConfig } from '@koras-e2e-shop/branding'
 import type { AccessContext, TenantBranding } from '@koras-e2e-shop/branding'
 import { productAccessFromOrganizationRoles } from '@koras-e2e-shop/permissions'
 import type { ProductPermission } from '@koras-e2e-shop/permissions'
+import { createTranslator } from '@koras-e2e-shop/i18n'
+import type { Locale } from '@koras-e2e-shop/i18n'
 import { currentMember, type MemberSession } from './session'
 import { tenantBranding } from './tenant-branding'
 import { tenantEntitlements } from './entitlements'
@@ -97,9 +99,10 @@ export function can(context: AccessContext, permission: ProductPermission): bool
  * once per-product assignment exists, and the header should say what they are
  * here.
  */
-export function roleLabel(context: AccessContext): string | undefined {
-  if (context.access.role === 'product_admin') return 'Administrator'
-  if (context.access.role === 'product_member') return 'Member'
+export function roleLabel(context: AccessContext, locale: Locale): string | undefined {
+  const t = createTranslator(locale)
+  if (context.access.role === 'product_admin') return t('shell.roleAdministrator')
+  if (context.access.role === 'product_member') return t('shell.roleMember')
   return undefined
 }
 

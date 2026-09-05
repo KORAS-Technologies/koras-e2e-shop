@@ -1,4 +1,5 @@
-import { productConfig } from '@koras-e2e-shop/branding'
+import { marketingFor } from '@koras-e2e-shop/branding'
+import type { Locale } from '@koras-e2e-shop/i18n'
 import { Icon } from '../primitives/icon'
 import { Section } from '../primitives/section'
 
@@ -10,8 +11,8 @@ import { Section } from '../primitives/section'
  * same section twice. This is a checked list on a quiet band: same rhythm,
  * different weight.
  */
-export function OutcomeSection() {
-  const { marketing } = productConfig
+export function OutcomeSection({ locale }: { locale: Locale }) {
+  const marketing = marketingFor(locale)
   if (marketing.outcomes.length === 0) return null
 
   return (

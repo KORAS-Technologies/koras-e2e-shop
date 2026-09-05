@@ -1,4 +1,5 @@
-import { productConfig } from '@koras-e2e-shop/branding'
+import { marketingFor } from '@koras-e2e-shop/branding'
+import type { Locale } from '@koras-e2e-shop/i18n'
 import { Container } from '../primitives/container'
 import { ProductVisual } from './product-visual'
 
@@ -14,8 +15,8 @@ import { ProductVisual } from './product-visual'
  * same frame. When it does not, it draws the same interface the hero does; the
  * repetition is deliberate, because it is the same product.
  */
-export function ProductPreview() {
-  const { marketing } = productConfig
+export function ProductPreview({ locale }: { locale: Locale }) {
+  const marketing = marketingFor(locale)
 
   return (
     <section className="bg-brand-ink py-20 text-white sm:py-24">
@@ -29,7 +30,7 @@ export function ProductPreview() {
           </p>
         </div>
         <div className="mx-auto mt-12 max-w-4xl">
-          <ProductVisual image={marketing.previewImage} />
+          <ProductVisual image={marketing.previewImage} locale={locale} />
         </div>
       </Container>
     </section>

@@ -1,4 +1,5 @@
-import { productConfig } from '@koras-e2e-shop/branding'
+import { marketingFor } from '@koras-e2e-shop/branding'
+import type { Locale } from '@koras-e2e-shop/i18n'
 import { Icon } from '../primitives/icon'
 import { Section } from '../primitives/section'
 
@@ -15,8 +16,8 @@ import { Section } from '../primitives/section'
  * one edit to this page that can cost somebody a contract. Configure it after
  * the certificate is issued, not before.
  */
-export function TrustSection() {
-  const { marketing } = productConfig
+export function TrustSection({ locale }: { locale: Locale }) {
+  const marketing = marketingFor(locale)
   if (marketing.trust.length === 0) return null
 
   return (

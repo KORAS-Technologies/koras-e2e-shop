@@ -1,4 +1,5 @@
-import { productConfig } from '@koras-e2e-shop/branding'
+import { marketingFor } from '@koras-e2e-shop/branding'
+import type { Locale } from '@koras-e2e-shop/i18n'
 import type { FeatureItem } from '@koras-e2e-shop/branding'
 import { Card } from '../primitives/card'
 import { Icon } from '../primitives/icon'
@@ -12,8 +13,8 @@ import { Section } from '../primitives/section'
  * before reading them -- which is most of the value of a grid, and is lost the
  * moment it is built out of bare divs.
  */
-export function FeatureGrid() {
-  const { marketing } = productConfig
+export function FeatureGrid({ locale }: { locale: Locale }) {
+  const marketing = marketingFor(locale)
   if (marketing.features.length === 0) return null
 
   return (

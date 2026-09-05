@@ -16,6 +16,7 @@
     "@koras-e2e-shop/branding": "workspace:*",
     "@koras-e2e-shop/config": "workspace:*",
     "@koras-e2e-shop/feature-flags": "workspace:*",
+    "@koras-e2e-shop/i18n": "workspace:*",
     "@koras-e2e-shop/tenant": "workspace:*",
     "@koras-e2e-shop/types": "workspace:*",
     "@koras-e2e-shop/ui": "workspace:*",
