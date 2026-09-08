@@ -671,7 +671,7 @@ export const productConfig: ProductConfig = {
     tagline: 'Operations, in one place',
     description:
       'koras-e2e-shop brings the people, records and decisions behind your day-to-day operations into a single workspace, with the access control and tenant isolation an enterprise rollout needs.',
-    contactEmail: '',
+    contactEmail: 'sales@korastech.com',
     url: 'https://koras-e2e-shop.korastechnologies.com',
     appUrl: '',
     accountUrl: '',
