@@ -13,7 +13,9 @@
  * be bought unattended, whether the address is already known, what a token is
  * worth. These actions carry a form across and report what came back. They must
  * not add validation that duplicates the platform's, because the copy that
- * drifts is always the one further from the decision.
+ * drifts is always the one further from the decision. The one exception is the
+ * seat count, checked here against the bounds the catalogue itself supplied,
+ * so a typo is caught before an email is sent rather than after.
  *
  * Every message a visitor can read is translated here, on the server, in the
  * language the request was made in. The form renders what it is handed, so a
@@ -23,67 +25,26 @@
 
 // Types only. A `'use server'` module may export nothing but async functions,
 // so `SignupState` and `IDLE` live in `./state` and are imported here.
-import type { SignupState, SignupStatus } from './state'
+import type { PublicPlan } from '@koras-e2e-shop/branding'
+import type { CheckoutDetails, SignupState, SignupStatus } from './state'
 import { translator } from '../../lib/locale'
+import { loadPublicPlans } from '../../lib/plans'
 
 function controlPlane(): string | null {
   const base = process.env.KORAS_CONTROL_PLANE_URL
   return base ? base.replace(/\/$/, '') : null
 }
 
-export interface PublicPlan {
-  code: string
-  name: string
-}
-
 /**
  * What this product sells to somebody without an account.
  *
- * Read on the server when the page renders, not chosen at generation time. An
- * empty list is the common answer and a meaningful one: no plan is self-serve
- * until somebody marks it so, and a page that receives none should say signup
- * is unavailable rather than show an empty control.
- *
- * Failures answer empty too. A visitor cannot act on "the platform is
- * unreachable" any differently from "nothing is on sale", and the page says the
- * same thing for both.
- *
- * They are not the same to whoever runs this, though, and for a while nothing
- * said so. On 2026-08-30 the Control Plane answered 500 to every request this
- * ever made -- its anonymous endpoints opened database transactions without
- * declaring a caller -- and the signup page reported it as "signing up online
- * is not available yet". Correct for the visitor, and indistinguishable from a
- * catalogue nobody has filled in, which is the state a new product is
- * legitimately in. So it looked configured while it was broken.
- *
- * The log line below is the whole difference. The visitor still sees one
- * message for both causes; the operator no longer does.
+ * The same loader the homepage's pricing section reads, so the plan a card
+ * offered and the plan the form offers are one list from one place. The
+ * shape and the "older platform means free trial" rule live in
+ * `parsePublicPlans` in `packages/branding`, where they are tested.
  */
 export async function availablePlans(): Promise<PublicPlan[]> {
-  const base = controlPlane()
-  if (!base) return []
-
-  try {
-    const response = await fetch(
-      `${base}/api/signup/v1/plans?product_code=koras-e2e-shop`,
-      { cache: 'no-store' },
-    )
-    if (!response.ok) {
-      // Server-side only: this runs when the page renders, so it reaches the
-      // service log and never the browser. The status is the diagnosis -- 500
-      // is the platform, 422 is this request, 404 is the product code.
-      console.error(
-        `[signup] the plan catalogue answered ${response.status}; ` +
-          'the page will say signup is unavailable, which is indistinguishable ' +
-          'from an empty catalogue to a visitor but not to you.',
-      )
-      return []
-    }
-    return (await response.json()) as PublicPlan[]
-  } catch (error) {
-    console.error('[signup] the plan catalogue could not be reached:', error)
-    return []
-  }
+  return loadPublicPlans()
 }
 
 /** Turn a refusal into something a stranger can act on. */
@@ -112,6 +73,8 @@ export async function startSignup(
   const organizationName = String(form.get('organizationName') ?? '').trim()
   const ownerName = String(form.get('ownerName') ?? '').trim()
   const planCode = String(form.get('planCode') ?? '').trim()
+  const billingInterval = form.get('billingInterval') === 'year' ? 'year' : 'month'
+  const rawSeats = String(form.get('seats') ?? '').trim()
 
   if (!email.includes('@')) {
     return { status: 'error', field: 'email', message: t('signup.error.email') }
@@ -123,6 +86,31 @@ export async function startSignup(
     // Only reachable if the list arrived empty and somebody posted anyway. The
     // Control Plane would refuse it too; this says so in the visitor's words.
     return { status: 'error', message: t('signup.error.notAvailable') }
+  }
+
+  // The seat count, against the bounds the catalogue itself supplied. The
+  // Control Plane checks it again, and refuses in the same terms; this is so a
+  // typo is caught under the field rather than as a generic refusal.
+  const plan = (await availablePlans()).find((candidate) => candidate.code === planCode)
+  const min = plan?.min_seats ?? 1
+  const max = plan?.max_seats ?? null
+  const seats = rawSeats ? Number(rawSeats) : min
+  if (!Number.isInteger(seats) || seats < min || (max !== null && seats > max)) {
+    return {
+      status: 'error',
+      field: 'seats',
+      message:
+        max !== null
+          ? t('signup.error.seats', { min, max })
+          : t('signup.error.seatsMin', { min }),
+    }
+  }
+  if (plan && (plan.price_id_month || plan.price_id_year)) {
+    const priceForInterval =
+      billingInterval === 'year' ? plan.price_id_year : plan.price_id_month
+    if (!priceForInterval) {
+      return { status: 'error', field: 'billingInterval', message: t('signup.error.interval') }
+    }
   }
 
   const base = controlPlane()
@@ -144,6 +132,8 @@ export async function startSignup(
         owner_name: ownerName || undefined,
         product_code: 'koras-e2e-shop',
         plan_code: planCode,
+        billing_interval: billingInterval,
+        seats,
       }),
     })
   } catch {
@@ -169,6 +159,13 @@ export type VerifyOutcome =
    * is the only place the product can learn what their workspace is called.
    */
   | { status: 'verified'; jobId: string; organizationSlug: string }
+  /**
+   * The token was spent, the organisation exists, and a card is needed before
+   * anything is provisioned. `checkout` is what opens the payment provider's
+   * form; the run starts when the provider says the checkout completed, and
+   * the page then polls by registration rather than by job.
+   */
+  | { status: 'awaiting-payment'; organizationSlug: string; checkout: CheckoutDetails }
   /** Unknown, expired or already used. Deliberately one outcome, not three. */
   | { status: 'invalid' }
   /** Nothing to do with the token: the caller is over the platform's budget. */
@@ -202,8 +199,35 @@ export async function verifySignup(token: string): Promise<VerifyOutcome> {
     })
     if (response.ok) {
       const body = (await response.json()) as {
+        status?: string
         job_id?: string
         organization_slug?: string
+        checkout?: {
+          registration_id: string
+          organization_id: string
+          product_code: string
+          plan_code: string
+          price_id: string
+          seats: number
+          billing_interval: string
+          email: string
+        } | null
+      }
+      if (body.status === 'awaiting_payment' && body.checkout) {
+        return {
+          status: 'awaiting-payment',
+          organizationSlug: body.organization_slug ?? '',
+          checkout: {
+            registrationId: body.checkout.registration_id,
+            organizationId: body.checkout.organization_id,
+            productCode: body.checkout.product_code,
+            planCode: body.checkout.plan_code,
+            priceId: body.checkout.price_id,
+            seats: body.checkout.seats,
+            billingInterval: body.checkout.billing_interval === 'year' ? 'year' : 'month',
+            email: body.checkout.email,
+          },
+        }
       }
       return {
         status: 'verified',
@@ -226,6 +250,11 @@ export async function verifySignup(token: string): Promise<VerifyOutcome> {
  * email, which is a dead end in the browser and the most common place for
  * somebody to give up.
  *
+ * Since the checkout, the page may hold no job id: the run starts when the
+ * payment provider's webhook arrives, seconds to minutes after the checkout
+ * closes. So this asks by registration too, and the Control Plane answers
+ * `AWAITING_PAYMENT` -- pending, in this page's terms -- until the run exists.
+ *
  * On the server, like everything else in this file: `KORAS_CONTROL_PLANE_URL`
  * and the shape of that API are not the browser's business, and a page polling
  * the platform directly would put its address in every visitor's network tab.
@@ -237,15 +266,20 @@ export async function verifySignup(token: string): Promise<VerifyOutcome> {
  * succeed -- an unknown job answers that too, because a job the Control Plane
  * has never heard of is not going to start existing.
  */
-export async function signupStatus(jobId: string): Promise<SignupStatus> {
+export async function signupStatus(jobId: string, registrationId = ''): Promise<SignupStatus> {
   const base = controlPlane()
-  if (!base || !jobId) return { state: 'pending', ready: false, failed: false }
+  if (!base || (!jobId && !registrationId)) {
+    return { state: 'pending', ready: false, failed: false }
+  }
+
+  const query = jobId
+    ? `job_id=${encodeURIComponent(jobId)}`
+    : `registration_id=${encodeURIComponent(registrationId)}`
 
   try {
-    const response = await fetch(
-      `${base}/api/signup/v1/registrations/status?job_id=${encodeURIComponent(jobId)}`,
-      { cache: 'no-store' },
-    )
+    const response = await fetch(`${base}/api/signup/v1/registrations/status?${query}`, {
+      cache: 'no-store',
+    })
     if (response.status === 404) {
       return { state: 'unknown', ready: false, failed: true }
     }

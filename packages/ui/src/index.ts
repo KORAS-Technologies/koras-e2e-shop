@@ -46,6 +46,11 @@ export { HowItWorks } from './marketing/how-it-works'
 export { OutcomeSection } from './marketing/outcome-section'
 export { ProductPreview } from './marketing/product-preview'
 export { ProductVisual } from './marketing/product-visual'
+export { PricingSection } from './marketing/pricing-section'
+export { PricingPlans } from './marketing/pricing-plans'
+export type { PricingLabels } from './marketing/pricing-plans'
+export { PADDLE_JS, paddleEnvironment } from './lib/paddle'
+export type { PaddleEnvironment, PaddleJs, PaddlePriceLine } from './lib/paddle'
 export { PublicFooter } from './marketing/public-footer'
 export { PublicHeader } from './marketing/public-header'
 export { TrustSection } from './marketing/trust-section'
@@ -53,6 +58,11 @@ export { ValueStrip } from './marketing/value-strip'
 
 export { AccessDenied } from './shell/access-denied'
 export { AuthenticatedProductShell } from './shell/product-shell'
+export {
+  SubscriptionClosed,
+  SubscriptionNotice,
+  subscriptionBlocks,
+} from './shell/subscription-notice'
 export type { ShellIdentity } from './shell/product-shell'
 export { ProductHeader } from './shell/product-header'
 export { ProductNavigation } from './shell/product-navigation'

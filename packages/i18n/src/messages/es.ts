@@ -37,6 +37,34 @@ export const es: Readonly<Record<keyof typeof en, string>> = {
   'shell.themeSystem': 'Sistema',
   'shell.themeDark': 'Oscuro',
   'shell.lockedPlan': 'No incluido en su plan',
+  'subscription.trial.endsIn': 'Su prueba gratuita termina en {days} días.',
+  'subscription.trial.endsToday': 'Su prueba gratuita termina hoy.',
+  'subscription.trial.open': 'Está en una prueba gratuita.',
+  'subscription.trial.addCard': 'Añadir un método de pago',
+  'subscription.pastDue.graceDays':
+    'Su último pago no se ha completado. El acceso continúa durante {days} días mientras se actualiza la tarjeta.',
+  'subscription.pastDue.open':
+    'Su último pago no se ha completado. Actualice su método de pago para conservar el acceso.',
+  'subscription.pastDue.fixCard': 'Actualizar el método de pago',
+  'subscription.closed.trialTitle': 'Su prueba gratuita ha terminado',
+  'subscription.closed.title': 'Su suscripción ha terminado',
+  'subscription.closed.descriptionAdmin':
+    'Sus datos se conservan y no se pierde nada. Elija un plan para continuar donde lo dejó en {product}.',
+  'subscription.closed.descriptionMember':
+    'Sus datos se conservan y no se pierde nada. Un administrador de su organización puede elegir un plan para reabrir {product}.',
+  'subscription.closed.action': 'Elegir un plan',
+
+  'pricing.monthly': 'Mensual',
+  'pricing.yearly': 'Anual',
+  'pricing.billing': 'Periodo de facturación',
+  'pricing.perSeatMonth': 'por puesto y mes',
+  'pricing.perSeatYear': 'por puesto y año',
+  'pricing.choose': 'Empezar la prueba gratuita',
+  'pricing.priceAtCheckout': 'Precio al pagar',
+  'pricing.loading': 'Obteniendo el precio…',
+  'pricing.seatsRange': 'De {min} a {max} puestos',
+  'pricing.seatsFrom': 'Desde {min} puestos',
+  'pricing.singleSeat': 'Cualquier número de puestos',
   'shell.lockedFeature': 'No activado para su organización',
   'shell.roleAdministrator': 'Administrador',
   'shell.roleMember': 'Miembro',
@@ -87,6 +115,14 @@ export const es: Readonly<Record<keyof typeof en, string>> = {
   'signup.form.name': 'Su nombre',
   'signup.form.optional': 'Opcional.',
   'signup.form.plan': 'Plan',
+  'signup.form.interval': 'Facturación',
+  'signup.form.interval.month': 'Mensual',
+  'signup.form.interval.year': 'Anual',
+  'signup.form.seats': 'Puestos',
+  'signup.form.seatsHint': 'Entre {min} y {max}. Podrá cambiarlo más adelante.',
+  'signup.form.seatsHintMin': 'Al menos {min}. Podrá cambiarlo más adelante.',
+  'signup.form.noteCard':
+    'Le enviaremos un enlace para confirmar la dirección y después le pediremos una tarjeta. No se cobra nada hasta que termine su prueba de 14 días.',
   'signup.form.submit': 'Crear cuenta',
   'signup.form.submitting': 'Creando su cuenta',
   'signup.form.note':
@@ -105,6 +141,27 @@ export const es: Readonly<Record<keyof typeof en, string>> = {
   'signup.error.notConfigured':
     'El registro aún no está disponible. Póngase en contacto con nosotros.',
   'signup.error.unreachable': 'No hemos podido conectar con el servicio de registro.',
+  'signup.error.seats': 'Elija entre {min} y {max} puestos.',
+  'signup.error.seatsMin': 'Elija al menos {min} puestos.',
+  'signup.error.interval': 'Ese plan no se vende así. Elija otra opción de facturación.',
+
+  'checkout.title': 'Añadir un método de pago',
+  'checkout.description':
+    'Su dirección está confirmada. Añada una tarjeta para empezar su prueba de 14 días de {product}.',
+  'checkout.opening': 'Abriendo el pago seguro…',
+  'checkout.waiting': 'El pago está abierto. Complételo para continuar.',
+  'checkout.open': 'Abrir el pago',
+  'checkout.trialNote': 'No se cobra nada hasta que termine la prueba, y puede cancelar antes.',
+  'checkout.closed.title': 'El pago se ha cerrado',
+  'checkout.closed.description':
+    'No se ha cobrado nada ni se ha creado nada. Ábralo de nuevo para continuar, o vuelva más tarde: le enviaremos un enlace.',
+  'checkout.failed.title': 'No se ha podido cargar el pago',
+  'checkout.failed.description':
+    'Compruebe su conexión y recargue esta página. Su enlace sigue siendo válido.',
+  'checkout.failed.reload': 'Recargar',
+  'checkout.notConfigured.title': 'El pago aún no está configurado',
+  'checkout.notConfigured.description':
+    '{product} todavía no puede aceptar pagos en línea. Su dirección está confirmada y no se pierde nada: escríbanos y terminaremos de configurar su cuenta.',
 
   'requestAccess.heading': 'Empezar con {product}',
   'requestAccess.byAdmin':

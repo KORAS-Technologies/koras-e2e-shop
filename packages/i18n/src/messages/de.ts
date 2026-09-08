@@ -42,6 +42,34 @@ export const de: Readonly<Record<keyof typeof en, string>> = {
   'shell.themeSystem': 'System',
   'shell.themeDark': 'Dunkel',
   'shell.lockedPlan': 'Nicht in Ihrem Tarif enthalten',
+  'subscription.trial.endsIn': 'Ihre kostenlose Testphase endet in {days} Tagen.',
+  'subscription.trial.endsToday': 'Ihre kostenlose Testphase endet heute.',
+  'subscription.trial.open': 'Sie befinden sich in einer kostenlosen Testphase.',
+  'subscription.trial.addCard': 'Zahlungsmethode hinzufügen',
+  'subscription.pastDue.graceDays':
+    'Ihre letzte Zahlung ist fehlgeschlagen. Der Zugang bleibt noch {days} Tage bestehen, während die Karte aktualisiert wird.',
+  'subscription.pastDue.open':
+    'Ihre letzte Zahlung ist fehlgeschlagen. Aktualisieren Sie Ihre Zahlungsmethode, um den Zugang zu behalten.',
+  'subscription.pastDue.fixCard': 'Zahlungsmethode aktualisieren',
+  'subscription.closed.trialTitle': 'Ihre kostenlose Testphase ist beendet',
+  'subscription.closed.title': 'Ihr Abonnement ist beendet',
+  'subscription.closed.descriptionAdmin':
+    'Ihre Daten bleiben erhalten, nichts geht verloren. Wählen Sie einen Tarif, um in {product} dort weiterzumachen, wo Sie aufgehört haben.',
+  'subscription.closed.descriptionMember':
+    'Ihre Daten bleiben erhalten, nichts geht verloren. Ein Administrator Ihrer Organisation kann einen Tarif wählen, um {product} wieder zu öffnen.',
+  'subscription.closed.action': 'Tarif wählen',
+
+  'pricing.monthly': 'Monatlich',
+  'pricing.yearly': 'Jährlich',
+  'pricing.billing': 'Abrechnungszeitraum',
+  'pricing.perSeatMonth': 'pro Platz und Monat',
+  'pricing.perSeatYear': 'pro Platz und Jahr',
+  'pricing.choose': 'Kostenlos testen',
+  'pricing.priceAtCheckout': 'Preis beim Bezahlen',
+  'pricing.loading': 'Preis wird geladen …',
+  'pricing.seatsRange': '{min} bis {max} Plätze',
+  'pricing.seatsFrom': 'Ab {min} Plätzen',
+  'pricing.singleSeat': 'Beliebig viele Plätze',
   'shell.lockedFeature': 'Für Ihre Organisation nicht aktiviert',
   'shell.roleAdministrator': 'Administrator',
   'shell.roleMember': 'Mitglied',
@@ -92,6 +120,14 @@ export const de: Readonly<Record<keyof typeof en, string>> = {
   'signup.form.name': 'Ihr Name',
   'signup.form.optional': 'Optional.',
   'signup.form.plan': 'Tarif',
+  'signup.form.interval': 'Abrechnung',
+  'signup.form.interval.month': 'Monatlich',
+  'signup.form.interval.year': 'Jährlich',
+  'signup.form.seats': 'Plätze',
+  'signup.form.seatsHint': 'Zwischen {min} und {max}. Sie können das später ändern.',
+  'signup.form.seatsHintMin': 'Mindestens {min}. Sie können das später ändern.',
+  'signup.form.noteCard':
+    'Wir senden Ihnen einen Link zur Bestätigung der Adresse und fragen dann nach einer Karte. Bis zum Ende Ihrer 14-tägigen Testphase wird nichts berechnet.',
   'signup.form.submit': 'Konto erstellen',
   'signup.form.submitting': 'Ihr Konto wird erstellt',
   'signup.form.note':
@@ -110,6 +146,29 @@ export const de: Readonly<Record<keyof typeof en, string>> = {
   'signup.error.notConfigured':
     'Die Registrierung ist noch nicht verfügbar. Bitte kontaktieren Sie uns.',
   'signup.error.unreachable': 'Der Registrierungsdienst war nicht erreichbar.',
+  'signup.error.seats': 'Wählen Sie zwischen {min} und {max} Plätzen.',
+  'signup.error.seatsMin': 'Wählen Sie mindestens {min} Plätze.',
+  'signup.error.interval':
+    'Dieser Tarif wird so nicht angeboten. Wählen Sie eine andere Abrechnung.',
+
+  'checkout.title': 'Zahlungsmethode hinzufügen',
+  'checkout.description':
+    'Ihre Adresse ist bestätigt. Hinterlegen Sie eine Karte, um Ihre 14-tägige Testphase von {product} zu starten.',
+  'checkout.opening': 'Sicherer Bezahlvorgang wird geöffnet …',
+  'checkout.waiting': 'Der Bezahlvorgang ist geöffnet. Schließen Sie ihn ab, um fortzufahren.',
+  'checkout.open': 'Bezahlvorgang öffnen',
+  'checkout.trialNote':
+    'Bis zum Ende der Testphase wird nichts berechnet, und Sie können vorher kündigen.',
+  'checkout.closed.title': 'Der Bezahlvorgang wurde geschlossen',
+  'checkout.closed.description':
+    'Es wurde nichts berechnet und nichts angelegt. Öffnen Sie ihn erneut, um fortzufahren, oder kommen Sie später zurück – wir senden Ihnen einen Link.',
+  'checkout.failed.title': 'Der Bezahlvorgang konnte nicht geladen werden',
+  'checkout.failed.description':
+    'Prüfen Sie Ihre Verbindung und laden Sie die Seite neu. Ihr Link ist weiterhin gültig.',
+  'checkout.failed.reload': 'Neu laden',
+  'checkout.notConfigured.title': 'Zahlung ist noch nicht eingerichtet',
+  'checkout.notConfigured.description':
+    '{product} kann online noch keine Zahlung entgegennehmen. Ihre Adresse ist bestätigt und nichts geht verloren – melden Sie sich bei uns, und wir richten Ihr Konto fertig ein.',
 
   'requestAccess.heading': 'Mit {product} loslegen',
   'requestAccess.byAdmin':
