@@ -8,8 +8,9 @@ from redis.asyncio import Redis
 from .core.database import verify_rls_enforcement
 from .core.observability import setup_telemetry
 from .core.ratelimit import limit_anonymous, limit_authenticated
+from .core.security import SecurityHeadersMiddleware
 from .core.settings import settings
-from .routers import health, platform, tenant
+from .routers import files, health, platform, tenant
 
 
 @asynccontextmanager
@@ -42,12 +43,32 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# Registered before CORS, so it runs *after* it. Starlette applies middleware
+# in reverse registration order, and the headers must reach every response
+# including a CORS preflight and anything an earlier layer refused.
+app.add_middleware(SecurityHeadersMiddleware)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[str(origin) for origin in settings.cors_origins],
+    # `rstrip("/")` because pydantic's URL types normalise a bare origin to a
+    # trailing slash and a browser's `Origin` header never carries one. Without
+    # it a configured origin simply never matches, and it fails as a CORS error
+    # with nothing saying a slash caused it.
+    allow_origins=[str(origin).rstrip("/") for origin in settings.cors_origins],
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    # Named rather than "*". With credentials allowed, a wildcard is the
+    # difference between "any page may read this" and "the pages we built may".
+    # Starlette echoes a configured wildcard back as the concrete origin, so the
+    # browser honours it and the mistake is invisible in a normal response.
+    #
+    # `allow_origins` is named too, so this was never an open door -- it was a
+    # wider one than anything needs, shipped to every generated project.
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    # `X-Request-Id` is deliberately absent. koras-control-plane names it because
+    # it propagates a correlation id; no template does, and a profile should not
+    # inherit permission for a header it never reads. Add it where it is used.
+    allow_headers=["Authorization", "Content-Type"],
+    max_age=600,
 )
 
 
@@ -82,6 +103,13 @@ app.include_router(health.router, prefix="/api/v1")
 # can still be abusive.
 app.include_router(
     tenant.router,
+    prefix="/api/v1",
+    dependencies=[Depends(limit_authenticated)],
+)
+# Files: the same customer surface, the same limiter, its own module because
+# it is the first route family that mints signed URLs and touches a bucket.
+app.include_router(
+    files.router,
     prefix="/api/v1",
     dependencies=[Depends(limit_authenticated)],
 )
