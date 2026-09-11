@@ -39,6 +39,12 @@ supabase_region = "us-east-1"
 # rejects it. Set true once the zone is upgraded.
 enable_waf = false
 
+# Public on purpose, since 2026-08-25: a private repository has no free Actions
+# minutes, and every CI-based criterion becomes unmeasurable (starter R-030).
+# It was made public by hand and this file still said private, so every plan
+# offered to flip it back -- which would have re-blocked every run.
+repository_visibility = "public"
+
 fly_regions = {
   dev  = "iad"
   test = "iad"
